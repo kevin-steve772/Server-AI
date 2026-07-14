@@ -1,0 +1,30 @@
+# AI API 配置
+api:
+  # API 密钥 (必填)
+  key: "your-api-key-here"
+  # API 地址 (OpenAI 兼容格式)
+  # 例如: https://api.openai.com/v1
+  # 例如: https://api.deepseek.com/v1
+  endpoint: "https://api.openai.com/v1"
+  # 模型名称
+  model: "gpt-3.5-turbo"
+  # 最大令牌数
+  max-tokens: 1024
+  # 温度 (0.0 - 2.0)
+  temperature: 0.7
+  # 请求超时时间 (秒)
+  timeout: 30
+
+# 消息配置
+messages:
+  no-permission: "&c你没有权限执行此命令。"
+  usage: "&e用法: /ask <问题>"
+  thinking: "&e正在思考中，请稍候..."
+  no-key: "&cAPI密钥未配置，请设置 config.yml 中的 api.key"
+  error: "&c请求AI时出错: %error%"
+  rate-limit: "&c请求过于频繁，请稍后再试。"
+  cooldown: "&c请等待 %seconds% 秒后再询问。"
+  reloaded: "&a配置已重载。"
+
+# 冷却时间 (秒)
+cooldown: 5
