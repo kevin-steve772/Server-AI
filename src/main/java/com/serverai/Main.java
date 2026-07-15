@@ -9,8 +9,11 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityPotionEffectEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 
 import java.util.Objects;
 import java.util.Map;
@@ -177,6 +180,18 @@ public final class Main extends JavaPlugin implements Listener {
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         cooldownDeadlines.remove(event.getPlayer().getUniqueId());
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onNpcPotionEffect(EntityPotionEffectEvent event) {
+        if (npcManager == null || event.getEntity() != npcManager.getEntity()) {
+            return;
+        }
+        PotionEffect newEffect = event.getNewEffect();
+        if (newEffect != null && newEffect.getType().equals(PotionEffectType.INVISIBILITY)) {
+            event.setCancelled(true);
+            npcManager.keepVisible();
+        }
     }
 
     private static int clamp(int value, int minimum, int maximum) {

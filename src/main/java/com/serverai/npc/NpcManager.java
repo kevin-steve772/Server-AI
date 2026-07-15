@@ -8,6 +8,7 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.WanderingTrader;
+import org.bukkit.potion.PotionEffectType;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -76,6 +77,9 @@ public final class NpcManager {
         trader.setPersistent(false);
         trader.setRemoveWhenFarAway(false);
         trader.setDespawnDelay(Integer.MAX_VALUE);
+        trader.setCanDrinkPotion(false);
+        trader.setCanDrinkMilk(false);
+        restoreVisibility(trader);
 
         npcEntity = trader;
         plugin.getLogger().info("NPC spawned: " + plainNpcName);
@@ -164,6 +168,13 @@ public final class NpcManager {
         return npcEntity;
     }
 
+    public void keepVisible() {
+        WanderingTrader entity = npcEntity;
+        if (entity != null) {
+            runOnEntity(entity, () -> restoreVisibility(entity));
+        }
+    }
+
     private MoveResult startMovement(WanderingTrader entity, Location target, double speed) {
         if (target.getWorld() == null || !entity.getWorld().equals(target.getWorld())) {
             return MoveResult.DIFFERENT_WORLD;
@@ -203,6 +214,7 @@ public final class NpcManager {
             clearMovementTask(task);
             return;
         }
+        restoreVisibility(entity);
 
         Location currentLocation = entity.getLocation();
         boolean arrived = entity.getWorld().equals(target.getWorld())
@@ -264,6 +276,12 @@ public final class NpcManager {
         return entity.isOnGround() || entity.isInWater() || entity.isInsideVehicle();
     }
 
+    private static void restoreVisibility(WanderingTrader entity) {
+        entity.clearActiveItem();
+        entity.removePotionEffect(PotionEffectType.INVISIBILITY);
+        entity.setInvisible(false);
+    }
+
     private void finishMovement(WanderingTrader entity, ScheduledTask currentTask) {
         if (currentTask != null && movementTask != currentTask) {
             currentTask.cancel();
@@ -272,6 +290,7 @@ public final class NpcManager {
 
         entity.getPathfinder().stopPathfinding();
         entity.setAI(false);
+        restoreVisibility(entity);
         movementTarget = null;
         lastProgressLocation = null;
         stalledRepaths = 0;
