@@ -20,6 +20,7 @@ public final class NpcManager {
     private static final double PATH_SEGMENT_DISTANCE = 24.0;
     private static final double PROGRESS_DISTANCE_SQUARED = 1.0;
     private static final int MAX_STALLED_REPATHS = 3;
+    private static final int MAX_AIRBORNE_WAIT_CHECKS = 20;
 
     private final Main plugin;
 
@@ -30,6 +31,7 @@ public final class NpcManager {
     private volatile Location movementTarget;
     private volatile Location lastProgressLocation;
     private volatile int stalledRepaths;
+    private volatile int airborneWaitChecks;
     private volatile double defaultSpeed;
     private volatile double arrivalDistance;
     private volatile double maxMoveDistance;
@@ -179,8 +181,8 @@ public final class NpcManager {
         cancelMovementMonitor();
         entity.getPathfinder().stopPathfinding();
         entity.setAI(true);
-        boolean started = startNextPathSegment(entity, target, speed);
-        if (!started) {
+        boolean canPathNow = canStartGroundPath(entity);
+        if (canPathNow && !startNextPathSegment(entity, target, speed)) {
             entity.setAI(false);
             return MoveResult.NO_PATH;
         }
@@ -188,6 +190,7 @@ public final class NpcManager {
         movementTarget = target;
         lastProgressLocation = currentLocation;
         stalledRepaths = 0;
+        airborneWaitChecks = 0;
         movementTask = entity.getScheduler().runAtFixedRate(plugin,
                 task -> monitorMovement(entity, target, speed, task),
                 () -> clearRetiredEntity(entity), 1L, 5L);
@@ -222,6 +225,15 @@ public final class NpcManager {
             return;
         }
 
+        if (!canStartGroundPath(entity)) {
+            airborneWaitChecks++;
+            if (airborneWaitChecks >= MAX_AIRBORNE_WAIT_CHECKS) {
+                finishMovement(entity, task);
+            }
+            return;
+        }
+
+        airborneWaitChecks = 0;
         stalledRepaths++;
         if (stalledRepaths >= MAX_STALLED_REPATHS) {
             finishMovement(entity, task);
@@ -248,6 +260,10 @@ public final class NpcManager {
         return entity.getPathfinder().moveTo(target, speed);
     }
 
+    private static boolean canStartGroundPath(WanderingTrader entity) {
+        return entity.isOnGround() || entity.isInWater() || entity.isInsideVehicle();
+    }
+
     private void finishMovement(WanderingTrader entity, ScheduledTask currentTask) {
         if (currentTask != null && movementTask != currentTask) {
             currentTask.cancel();
@@ -259,6 +275,7 @@ public final class NpcManager {
         movementTarget = null;
         lastProgressLocation = null;
         stalledRepaths = 0;
+        airborneWaitChecks = 0;
 
         ScheduledTask task = movementTask;
         if (currentTask == null || task == currentTask) {
@@ -277,6 +294,7 @@ public final class NpcManager {
         movementTarget = null;
         lastProgressLocation = null;
         stalledRepaths = 0;
+        airborneWaitChecks = 0;
         if (task != null) {
             task.cancel();
         }
@@ -288,6 +306,7 @@ public final class NpcManager {
             movementTarget = null;
             lastProgressLocation = null;
             stalledRepaths = 0;
+            airborneWaitChecks = 0;
         }
         task.cancel();
     }
