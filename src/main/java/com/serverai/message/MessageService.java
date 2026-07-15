@@ -15,6 +15,7 @@ public final class MessageService {
     private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
 
     private final JavaPlugin plugin;
+    private final MarkdownRenderer markdownRenderer = new MarkdownRenderer();
 
     public MessageService(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -29,16 +30,33 @@ public final class MessageService {
     public Component format(String path, String fallback, Map<String, String> replacements) {
         Component message = get(path, fallback);
         for (Map.Entry<String, String> entry : replacements.entrySet()) {
-            TextReplacementConfig replacement = TextReplacementConfig.builder()
-                    .matchLiteral('%' + entry.getKey() + '%')
-                    .replacement(Component.text(entry.getValue()))
-                    .build();
-            message = message.replaceText(replacement);
+            message = replace(message, entry.getKey(), Component.text(entry.getValue()));
         }
         return message;
     }
 
+    public Component formatComponents(String path, String fallback,
+                                      Map<String, Component> replacements) {
+        Component message = get(path, fallback);
+        for (Map.Entry<String, Component> entry : replacements.entrySet()) {
+            message = replace(message, entry.getKey(), entry.getValue());
+        }
+        return message;
+    }
+
+    public Component markdown(String value) {
+        return markdownRenderer.render(value);
+    }
+
     public String plain(Component component) {
         return PLAIN.serialize(component);
+    }
+
+    private Component replace(Component message, String key, Component value) {
+        TextReplacementConfig replacement = TextReplacementConfig.builder()
+                .matchLiteral('%' + key + '%')
+                .replacement(value)
+                .build();
+        return message.replaceText(replacement);
     }
 }

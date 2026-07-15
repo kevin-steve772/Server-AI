@@ -66,9 +66,11 @@ public final class NpcManager {
 
     public void say(String message) {
         String name = plainNpcName;
-        plugin.runGlobal(() -> plugin.getServer().broadcast(plugin.getMessages().format(
+        plugin.runGlobal(() -> plugin.getServer().broadcast(plugin.getMessages().formatComponents(
                 "npc.chat-format", "<%npc_name%> %message%",
-                Map.of("message", message, "npc_name", name))));
+                Map.of(
+                        "message", plugin.getMessages().markdown(message),
+                        "npc_name", Component.text(name)))));
     }
 
     public boolean isSpawned() {

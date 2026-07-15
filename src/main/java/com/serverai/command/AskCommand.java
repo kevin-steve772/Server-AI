@@ -130,8 +130,9 @@ public final class AskCommand implements TabExecutor {
             plugin.getNpcManager().say(answer);
             return;
         }
-        plugin.getServer().broadcast(plugin.getMessages().format(
-                "messages.broadcast-answer", "&b[AI] %answer%", Map.of("answer", answer)));
+        plugin.getServer().broadcast(plugin.getMessages().formatComponents(
+                "messages.broadcast-answer", "&b[AI] %answer%",
+                Map.of("answer", plugin.getMessages().markdown(answer))));
     }
 
     private void sendError(CommandSender sender, Throwable error) {
