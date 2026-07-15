@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Validate tag version
+        shell: bash
+        run: |
+          project_version="$(mvn --batch-mode --no-transfer-progress help:evaluate \
+            -Dexpression=project.version -q -DforceStdout)"
+          expected_tag="v${project_version}"
+          if [[ "${GITHUB_REF_NAME}" != "${expected_tag}" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match pom.xml version ${project_version}."
+            exit 1
+          fi
+
+      - name: Build and test
+        run: mvn --batch-mode --no-transfer-progress clean verify
+
+      - name: Generate checksum
+        shell: bash
+        run: sha256sum target/Server-AI-*.jar > target/SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            target/Server-AI-*.jar \
+            target/SHA256SUMS.txt \
+            --verify-tag \
+            --generate-notes \
+            --title "${GITHUB_REF_NAME}"

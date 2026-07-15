@@ -1,11 +1,17 @@
 # AI API 配置
 api:
   key: "your-api-key-here"
+  # 优先读取此环境变量，避免将密钥明文写入配置文件
+  key-env: "SERVER_AI_API_KEY"
+  # 本地无鉴权的 OpenAI 兼容服务可设为 false
+  require-key: true
   endpoint: "https://api.openai.com/v1"
   model: "gpt-3.5-turbo"
   max-tokens: 1024
   temperature: 0.7
   timeout: 30
+  max-concurrent-requests: 4
+  max-question-length: 1000
 
 # NPC 配置 (使用流浪商人作为NPC形象)
 npc:
@@ -20,10 +26,14 @@ messages:
   no-key: "&cAPI密钥未配置，请设置 config.yml 中的 api.key"
   error: "&c请求AI时出错: %error%"
   cooldown: "&c请等待 %seconds% 秒后再询问。"
+  in-progress: "&c你已有一个请求正在处理中，请等待完成。"
+  question-too-long: "&c问题过长，最多允许 %max% 个字符。"
   reloaded: "&a配置已重载。"
+  reload-error: "&c配置重载失败: %error%"
   broadcast-question: "&6[提问] &e%sender%&6: &f%question%"
   broadcast-answer: "&b[AI] %answer%"
   npc-say-format: "%message%"
+  npc-not-spawned: "&c请先生成 NPC。"
 
 # 冷却时间 (秒)
 cooldown: 5

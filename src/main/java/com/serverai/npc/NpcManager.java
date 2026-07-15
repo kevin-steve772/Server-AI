@@ -2,75 +2,98 @@ package com.serverai.npc;
 
 import com.serverai.Main;
 import net.kyori.adventure.text.Component;
-import net.md_5.bungee.api.ChatColor;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.entity.EntityType;
-import org.bukkit.entity.Player;
 import org.bukkit.entity.WanderingTrader;
 
-public class NpcManager {
+import java.util.Map;
+
+public final class NpcManager {
 
     private final Main plugin;
-    private final String npcName;
-    private WanderingTrader npcEntity;
+    private volatile Component npcName;
+    private volatile String plainNpcName;
+    private volatile WanderingTrader npcEntity;
 
     public NpcManager(Main plugin) {
         this.plugin = plugin;
-        this.npcName = ChatColor.translateAlternateColorCodes('&',
-                plugin.getConfig().getString("npc.name", "&b[AI]助手"));
+        reloadConfig();
+    }
+
+    public void reloadConfig() {
+        Component updatedName = plugin.getMessages().get("npc.name", "&b[AI]助手");
+        npcName = updatedName;
+        plainNpcName = plugin.getMessages().plain(updatedName);
+        WanderingTrader entity = npcEntity;
+        if (entity != null) {
+            runOnEntity(entity, () -> entity.customName(updatedName));
+        }
     }
 
     public boolean spawn(Location location) {
-        if (npcEntity != null) despawn();
+        World world = location.getWorld();
+        if (world == null) {
+            return false;
+        }
+        despawn();
 
-        location.getWorld().getEntitiesByClass(WanderingTrader.class).stream()
-                .filter(t -> t.getCustomName() != null && t.getCustomName().equals(npcName))
-                .forEach(t -> t.remove());
-
-        WanderingTrader trader = (WanderingTrader) location.getWorld().spawnEntity(location, EntityType.WANDERING_TRADER);
-        trader.setCustomName(npcName);
+        WanderingTrader trader = (WanderingTrader) world.spawnEntity(
+                location, EntityType.WANDERING_TRADER);
+        trader.customName(npcName);
         trader.setCustomNameVisible(true);
         trader.setAI(false);
         trader.setInvulnerable(true);
         trader.setCollidable(false);
         trader.setSilent(true);
-        trader.setPersistent(true);
+        trader.setPersistent(false);
         trader.setRemoveWhenFarAway(false);
 
-        this.npcEntity = trader;
-        plugin.getLogger().info("NPC spawned: " + ChatColor.stripColor(npcName));
+        npcEntity = trader;
+        plugin.getLogger().info("NPC spawned: " + plainNpcName);
         return true;
     }
 
     public void despawn() {
-        if (npcEntity != null) {
-            npcEntity.remove();
+        WanderingTrader entity = npcEntity;
+        if (entity != null) {
             npcEntity = null;
+            runOnEntity(entity, entity::remove);
             plugin.getLogger().info("NPC despawned");
         }
     }
 
     public void say(String message) {
-        String stripName = ChatColor.stripColor(npcName);
-        String format = plugin.getConfig().getString("npc.chat-format",
-                "<" + stripName + "> %message%");
-        String formatted = format
-                .replace("%message%", message)
-                .replace("%npc_name%", stripName);
-        plugin.getServer().broadcast(Component.text(
-                ChatColor.translateAlternateColorCodes('&', formatted)));
+        String name = plainNpcName;
+        plugin.runGlobal(() -> plugin.getServer().broadcast(plugin.getMessages().format(
+                "npc.chat-format", "<%npc_name%> %message%",
+                Map.of("message", message, "npc_name", name))));
     }
 
     public boolean isSpawned() {
-        return npcEntity != null && npcEntity.isValid();
+        return npcEntity != null;
     }
 
     public String getNpcName() {
-        return npcName;
+        return plainNpcName;
     }
 
     public WanderingTrader getEntity() {
         return npcEntity;
+    }
+
+    private void runOnEntity(WanderingTrader entity, Runnable action) {
+        if (Bukkit.isOwnedByCurrentRegion(entity)) {
+            action.run();
+            return;
+        }
+        if (plugin.isEnabled()) {
+            entity.getScheduler().execute(plugin, action, () -> {
+                if (npcEntity == entity) {
+                    npcEntity = null;
+                }
+            }, 1L);
+        }
     }
 }
