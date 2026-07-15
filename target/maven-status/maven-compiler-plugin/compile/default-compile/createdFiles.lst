@@ -1,5 +1,0 @@
-com\serverai\command\AskCommand.class
-com\serverai\command\NpcCommand.class
-com\serverai\npc\NpcManager.class
-com\serverai\AiClient.class
-com\serverai\Main.class

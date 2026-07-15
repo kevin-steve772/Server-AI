@@ -1,183 +1,117 @@
 # Server-AI
 
-Minecraft 服务器 AI 聊天插件，支持 Paper/Folia 服务端，兼容 OpenAI 格式 API（OpenAI、DeepSeek、Azure OpenAI、本地模型等）。
+面向 Paper/Folia 1.21+ 的 Minecraft AI 问答插件，兼容 OpenAI Chat Completions 格式的 API。
 
-## 功能特性
+## 功能
 
-- `/ask <问题>` - 玩家向 AI 提问
-- `/ask reload` - 重载配置文件（需权限）
-- **冷却时间限制** - 防止刷屏，可配置冷却秒数
-- **权限系统** - 支持权限插件控制权限
-- **Folia 支持** - 完全兼容 Folia 多线程架构
-- **OpenAI 兼容 API** - 支持 OpenAI、DeepSeek、Azure、本地模型等
-- **异步请求** - 使用 Folia 调度器异步请求，不阻塞主线程
-- **配置热重载** - 无需重启服务器即可修改配置
-- **AI NPC 系统** - 基于 Citizens 创建可由 AI 控制的 NPC
-  - NPC 生成、移除、列表
-  - NPC 聊天（全服/私聊）
-  - NPC 移动（寻路/瞬移）
-  - NPC 看向坐标/玩家
-  - NPC 装备/护甲
-  - **Function Calling** - AI 可直接调用工具控制 NPC
+- `/ask <问题>`：向 AI 提问并把问题、回答广播到服务器
+- `/ask reload`：热重载配置
+- `/npc spawn|remove|say|move|come|stop|info`：生成并控制流浪商人 NPC
+- AI Function Calling：AI 可移动、停止 NPC，查询位置或让 NPC 说话
+- 异步 HTTP 请求，不占用服务器区域线程
+- AI 回答支持标题、强调、代码、列表、引用、链接和表格等 Markdown 格式
+- 每玩家冷却、重复请求保护、全局 AI 请求并发上限
+- API 超时、问题长度和错误响应长度限制
+- 支持从环境变量读取 API 密钥
+- 支持无需鉴权的本地 OpenAI 兼容服务
+
+NPC 由插件直接创建，不依赖 Citizens，并通过 Paper Pathfinder 寻路。它是服务器实体而不是真实在线玩家；真实玩家身份需要独立 Minecraft 机器人账号登录。
+
+## 环境要求
+
+- Java 21+
+- Paper 或 Folia 1.21.4+
+- Maven 3.9+（仅构建时需要）
 
 ## 安装
 
-1. 安装 **Citizens** 插件（必需，用于 NPC 功能）
-2. 下载 `Server-AI-1.0.0.jar` 放入服务器 `plugins/` 目录
-3. 重启服务器
-4. 修改 `plugins/Server-AI/config.yml` 配置 API 密钥
-5. 使用 `/ask reload` 重载配置或重启服务器
+1. 执行 `mvn clean package`。
+2. 将 `target/Server-AI-1.0.5.jar` 放入服务器的 `plugins/` 目录。
+3. 启动服务器并编辑 `plugins/Server-AI/config.yml`。
+4. 设置 API 密钥后执行 `/ask reload`，或重启服务器。
 
-## 配置文件
+## 配置
 
 ```yaml
-# config.yml
 api:
-  key: "your-api-key-here"          # 必填：API 密钥
-  endpoint: "https://api.openai.com/v1"  # API 地址（OpenAI 兼容格式）
-  model: "gpt-3.5-turbo"            # 模型名称
-  max-tokens: 1024                  # 最大回复长度
-  temperature: 0.7                  # 创造性 (0.0-2.0)
-  timeout: 30                       # 请求超时秒数
-
-npc:
-  default-type: "PLAYER"            # 默认 NPC 类型
-  max-npcs: 20                      # 最大同时存在 NPC 数量
-  default-speed: 1.0                # NPC 移动速度
-  arrival-distance: 2.0             # NPC 到达判定距离
-
-messages:
-  no-permission: "&c你没有权限执行此命令。"
-  usage: "&e用法: /ask <问题>"
-  thinking: "&e正在思考中，请稍候..."
-  no-key: "&cAPI密钥未配置，请设置 config.yml 中的 api.key"
-  error: "&c请求AI时出错: %error%"
-  rate-limit: "&c请求过于频繁，请稍后再试。"
-  cooldown: "&c请等待 %seconds% 秒后再询问。"
-  reloaded: "&a配置已重载。"
-
-cooldown: 5  # 冷却时间（秒）
-```
-
-### 常用 API 配置示例
-
-**OpenAI:**
-```yaml
-api:
-  key: "sk-xxx"
+  key: "your-api-key-here"
+  key-env: "SERVER_AI_API_KEY"
+  require-key: true
   endpoint: "https://api.openai.com/v1"
   model: "gpt-3.5-turbo"
+  max-tokens: 1024
+  temperature: 0.7
+  timeout: 30
+  max-concurrent-requests: 4
+  max-question-length: 1000
+  system-prompt: >-
+    You are an AI assistant inside a Minecraft server. Use the available NPC tools
+    when the requester asks the NPC to move, stop, speak, or report its location.
+
+npc:
+  name: "&b[AI]助手"
+  chat-format: "<%npc_name%> %message%"
+  default-speed: 1.0
+  arrival-distance: 1.5
+  max-move-distance: 512.0
+
+cooldown: 5
 ```
 
-**DeepSeek:**
-```yaml
-api:
-  key: "sk-xxx"
-  endpoint: "https://api.deepseek.com/v1"
-  model: "deepseek-chat"
+`key-env` 指定的环境变量优先于 `api.key`，推荐在生产环境中使用：
+
+```bash
+export SERVER_AI_API_KEY="sk-..."
 ```
 
-**本地模型:**
+对于 Ollama 等无需 API 密钥的本地服务，可使用：
+
 ```yaml
 api:
-  key: "不需要"  # 本地模型通常不需要 key
-  endpoint: "http://localhost:11434/v1"  # Ollama 等
+  key: ""
+  require-key: false
+  endpoint: "http://127.0.0.1:11434/v1"
   model: "llama3"
 ```
 
+`endpoint` 可以填写 API 根路径，也可以直接填写完整的 `/chat/completions` 地址。
+
 ## 命令与权限
 
-### /ask 命令
+| 命令 | 权限 | 默认值 |
+| --- | --- | --- |
+| `/ask <问题>` | `serverai.ask` | 所有人 |
+| `/ask reload` | `serverai.reload` | OP |
+| `/npc spawn` | `serverai.npc` | OP |
+| `/npc remove` | `serverai.npc` | OP |
+| `/npc say <消息>` | `serverai.npc` | OP |
+| `/npc move <世界> <x> <y> <z> [速度]` | `serverai.npc` | OP |
+| `/npc come` | `serverai.npc` | OP |
+| `/npc stop` | `serverai.npc` | OP |
+| `/npc info` | `serverai.npc` | OP |
 
-| 命令 | 别名 | 权限 | 说明 |
-|------|------|------|------|
-| `/ask <问题>` | `/ai`, `/问` | `serverai.ask` | 向 AI 提问 |
-| `/ask reload` | - | `serverai.reload` | 重载配置 |
+NPC 移动速度范围是 `0.1` 到 `2.0`，默认最大移动距离是 512 格。远距离移动会自动分段寻路；已有配置文件的服务器需要手动更新 `npc.max-move-distance`。插件会阻止聊天 NPC 使用流浪商人的原版隐身药水行为。
 
-### /npc 命令
-
-| 命令 | 权限 | 说明 |
-|------|------|------|
-| `/npc spawn <名称> <world> <x> <y> <z> [类型]` | `serverai.npc` | 创建 NPC |
-| `/npc remove <名称>` | `serverai.npc` | 移除 NPC |
-| `/npc list` | `serverai.npc` | 列出所有 NPC |
-| `/npc chat <名称> <消息>` | `serverai.npc` | NPC 说话 |
-| `/npc move <名称> <world> <x> <y> <z> [速度]` | `serverai.npc` | NPC 移动 |
-| `/npc stop <名称>` | `serverai.npc` | 停止移动 |
-| `/npc look <名称> <world> <x> <y> <z>` | `serverai.npc` | NPC 看向坐标 |
-| `/npc equip <名称> <材质> [名称] [数量]` | `serverai.npc` | 给 NPC 装备 |
-| `/npc tp <名称> <world> <x> <y> <z>` | `serverai.npc` | 传送 NPC |
-| `/npc info <名称>` | `serverai.npc` | 查看 NPC 信息 |
-
-**默认权限:**
-- `serverai.ask`: 默认 `true`（所有人可用）
-- `serverai.reload`: 默认 `op`（仅 OP 可用）
-- `serverai.npc`: 默认 `op`（仅 OP 可用）
-
-## AI 控制 NPC (Function Calling)
-
-AI 可以通过 Function Calling 直接控制 NPC，无需玩家手动输入命令。
-
-### 可用工具函数
-
-| 函数 | 说明 | 参数 |
-|------|------|------|
-| `spawn_npc` | 生成 NPC | name, world, x, y, z, type? |
-| `remove_npc` | 移除 NPC | name |
-| `npc_chat` | NPC 全服聊天 | name, message |
-| `npc_chat_to` | NPC 私聊玩家 | name, player, message |
-| `npc_move` | NPC 移动到坐标 | name, world, x, y, z, speed? |
-| `npc_stop` | 停止 NPC 移动 | name |
-| `npc_look_at` | NPC 看向坐标 | name, world, x, y, z |
-| `npc_look_at_player` | NPC 看向玩家 | name, player |
-| `npc_equip` | 给 NPC 手持物品 | name, material, custom_name?, amount? |
-| `npc_armor` | 给 NPC 穿戴护甲 | name, helmet?, chestplate?, leggings?, boots? |
-| `npc_teleport` | 瞬间传送 NPC | name, world, x, y, z |
-| `npc_get_location` | 获取 NPC 位置 | name |
-| `npc_list` | 列出所有 NPC | - |
-| `get_online_players` | 获取在线玩家 | - |
-| `get_player_location` | 获取玩家位置 | player |
-
-### 使用示例
-
-玩家输入：`/ask 让 NPC 小明 走到出生点 并对大家说你好`
-
-AI 会自动调用：
-1. `npc_move` - 让小明移动到出生点坐标
-2. `npc_chat` - 让小明说 "你好大家！"
-
-### 系统提示词建议
-
-在配置中添加系统提示词让 AI 知道如何使用工具：
-
-```yaml
-# 可以通过修改代码添加系统提示，或让 AI 通过上下文学习
-```
-
-## 权限插件配置示例
-
-```yaml
-# LuckPerms 示例
-/lp group default permission set serverai.ask true
-/lp group admin permission set serverai.reload true
-/lp group admin permission set serverai.npc true
-```
-
-## 构建
-
-需要 Java 21 + Maven：
+## 构建与测试
 
 ```bash
-mvn clean package
+mvn clean verify
 ```
 
-输出: `target/Server-AI-1.0.0.jar`
+构建生成的插件 JAR 已包含并重定位 Jackson，避免依赖服务端内部版本或与其他插件冲突。
 
-## 依赖
+## 自动发布
 
-- Paper/Folia 1.21+
-- Citizens 2.0.30+
-- Java 21+
+仓库包含 GitHub Actions 发布工作流。推送与 `pom.xml` 版本一致的 `v*` Tag 后，工作流会自动运行测试、构建插件，并创建带 JAR 和 SHA-256 校验文件的 GitHub Release。
+
+例如发布 `1.0.5`：
+
+```bash
+git tag -a v1.0.5 -m "Release v1.0.5"
+git push origin v1.0.5
+```
+
+如果 Tag 与 `pom.xml` 中的版本不一致，发布会直接失败。向不属于自己的仓库推送前，请先将远端切换到有写权限的 Fork。
 
 ## 许可证
 

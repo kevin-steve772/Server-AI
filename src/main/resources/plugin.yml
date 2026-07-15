@@ -1,5 +1,5 @@
 name: Server-AI
-version: 1.0.0
+version: 1.0.5
 main: com.serverai.Main
 api-version: 1.21
 folia-supported: true
@@ -12,7 +12,7 @@ commands:
     permission: serverai.ask
   npc:
     description: 管理AI聊天NPC
-    usage: /npc spawn|remove|say <消息>
+    usage: /npc spawn|remove|say|move|come|stop|info
     permission: serverai.npc
 
 permissions:
