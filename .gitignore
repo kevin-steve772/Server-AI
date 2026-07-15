@@ -20,7 +20,6 @@
 *.rar
 
 # Maven
-target/
 
 # IDE
 .idea/
