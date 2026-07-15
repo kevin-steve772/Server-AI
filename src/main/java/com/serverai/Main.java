@@ -4,6 +4,7 @@ import com.serverai.command.AskCommand;
 import com.serverai.command.NpcCommand;
 import com.serverai.message.MessageService;
 import com.serverai.npc.NpcManager;
+import com.serverai.npc.NpcToolController;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -26,14 +27,16 @@ public final class Main extends JavaPlugin implements Listener {
 
     private volatile AiClient aiClient;
     private NpcManager npcManager;
+    private NpcToolController npcTools;
     private MessageService messages;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         messages = new MessageService(this);
-        initAiClient();
         npcManager = new NpcManager(this);
+        npcTools = new NpcToolController(this, npcManager);
+        initAiClient();
 
         AskCommand askCommand = new AskCommand(this);
         NpcCommand npcCommand = new NpcCommand(this);
@@ -58,8 +61,8 @@ public final class Main extends JavaPlugin implements Listener {
 
     public void reloadPluginConfig() {
         reloadConfig();
-        initAiClient();
         npcManager.reloadConfig();
+        initAiClient();
         cooldownDeadlines.clear();
     }
 
@@ -77,6 +80,7 @@ public final class Main extends JavaPlugin implements Listener {
 
         AiClient newClient = new AiClient(key, endpoint, model, maxTokens, temperature, timeout,
                 maxConcurrentRequests, requireKey);
+        newClient.setTools(npcTools.getDefinitions(), npcTools::execute);
         aiClient = newClient;
 
         if (!newClient.isConfigured()) {
@@ -151,10 +155,12 @@ public final class Main extends JavaPlugin implements Listener {
         pendingRequests.remove(playerId);
     }
 
-    public void runGlobal(Runnable action) {
+    public boolean runGlobal(Runnable action) {
         if (isEnabled()) {
             getServer().getGlobalRegionScheduler().execute(this, action);
+            return true;
         }
+        return false;
     }
 
     public void runForSender(CommandSender sender, Runnable action) {

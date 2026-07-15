@@ -144,6 +144,25 @@ class AiClientTest {
     }
 
     @Test
+    void omitsToolsWhenTheRequesterIsNotAuthorized() throws Exception {
+        AtomicReference<JsonNode> request = new AtomicReference<>();
+        startServer(exchange -> {
+            request.set(MAPPER.readTree(exchange.getRequestBody()));
+            respond(exchange, 200,
+                    "{\"choices\":[{\"message\":{\"content\":\"no tools\"}}]}");
+        });
+
+        AiClient client = client("secret", baseUrl() + "/v1", true);
+        client.setTools(List.of(MAPPER.createObjectNode().put("type", "function")),
+                call -> CompletableFuture.completedFuture("unused"));
+
+        assertEquals("no tools", client.askWithFunctionsAsync(
+                "question", null, false).get(2, TimeUnit.SECONDS));
+        assertFalse(request.get().has("tools"));
+        assertFalse(request.get().has("tool_choice"));
+    }
+
+    @Test
     void rejectsMissingRequiredApiKeyBeforeSending() {
         AiClient client = client("", "http://127.0.0.1:1/v1", true);
         assertFalse(client.isConfigured());

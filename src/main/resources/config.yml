@@ -12,11 +12,18 @@ api:
   timeout: 30
   max-concurrent-requests: 4
   max-question-length: 1000
+  system-prompt: >-
+    You are an AI assistant inside a Minecraft server. Use the available NPC tools
+    whenever the requester asks the NPC to move, come to a player, stop, speak, or
+    report its location. Do not claim a tool succeeded unless its result says so.
 
 # NPC 配置 (使用流浪商人作为NPC形象)
 npc:
   name: "&b[AI]助手"
   chat-format: "<%npc_name%> %message%"
+  default-speed: 1.0
+  arrival-distance: 1.5
+  max-move-distance: 128.0
 
 # 消息配置
 messages:

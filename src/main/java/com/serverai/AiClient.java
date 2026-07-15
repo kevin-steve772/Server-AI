@@ -82,6 +82,11 @@ public final class AiClient {
 
     public CompletableFuture<String> askWithFunctionsAsync(
             String question, List<Map<String, Object>> history) {
+        return askWithFunctionsAsync(question, history, true);
+    }
+
+    public CompletableFuture<String> askWithFunctionsAsync(
+            String question, List<Map<String, Object>> history, boolean allowToolCalls) {
         if (!isConfigured()) {
             return CompletableFuture.failedFuture(
                     new AiClientException("API key is not configured"));
@@ -104,8 +109,9 @@ public final class AiClient {
         }
         messages.add(createMessage("user", validatedQuestion));
 
-        return sendMessages(messages, true).thenCompose(message -> {
-            if (message.has("tool_calls") && message.get("tool_calls").isArray()) {
+        return sendMessages(messages, allowToolCalls).thenCompose(message -> {
+            if (allowToolCalls && message.has("tool_calls")
+                    && message.get("tool_calls").isArray()) {
                 return handleToolCalls(message, messages);
             }
             return completedContent(message);
