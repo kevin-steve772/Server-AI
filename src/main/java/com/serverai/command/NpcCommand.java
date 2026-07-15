@@ -2,6 +2,7 @@ package com.serverai.command;
 
 import com.serverai.Main;
 import com.serverai.npc.NpcManager;
+import com.serverai.npc.NpcManager.MoveResult;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
@@ -109,8 +110,7 @@ public final class NpcCommand implements TabExecutor {
             double speed = args.length == 6
                     ? finiteDouble(args[5]) : plugin.getNpcManager().getDefaultSpeed();
             Location target = new Location(world, x, y, z);
-            completeBoolean(sender, plugin.getNpcManager().moveTo(target, speed),
-                    "NPC开始移动", "无法到达目标；请确认世界和距离配置");
+            completeMovement(sender, plugin.getNpcManager().moveTo(target, speed));
         } catch (NumberFormatException exception) {
             sender.sendMessage(Component.text("坐标和速度必须是有效数字", NamedTextColor.RED));
         }
@@ -124,9 +124,8 @@ public final class NpcCommand implements TabExecutor {
         if (!requireNpc(sender)) {
             return;
         }
-        completeBoolean(sender, plugin.getNpcManager().moveTo(
-                        player.getLocation(), plugin.getNpcManager().getDefaultSpeed()),
-                "NPC正在向你移动", "NPC无法移动到你的位置");
+        completeMovement(sender, plugin.getNpcManager().moveTo(
+                player.getLocation(), plugin.getNpcManager().getDefaultSpeed()));
     }
 
     private void info(CommandSender sender) {
@@ -158,6 +157,36 @@ public final class NpcCommand implements TabExecutor {
                 sender.sendMessage(Component.text(successMessage, NamedTextColor.GREEN));
             } else {
                 sender.sendMessage(Component.text(failureMessage, NamedTextColor.RED));
+            }
+        }));
+    }
+
+    private void completeMovement(CommandSender sender, CompletableFuture<MoveResult> future) {
+        future.whenComplete((result, error) -> plugin.runForSender(sender, () -> {
+            if (error != null) {
+                sender.sendMessage(Component.text(
+                        "NPC移动失败: " + safeMessage(error), NamedTextColor.RED));
+                return;
+            }
+
+            switch (result) {
+                case STARTED -> sender.sendMessage(Component.text(
+                        "NPC开始移动", NamedTextColor.GREEN));
+                case ALREADY_THERE -> sender.sendMessage(Component.text(
+                        "NPC已在目标位置附近", NamedTextColor.GREEN));
+                case NOT_SPAWNED -> sender.sendMessage(plugin.getMessages().get(
+                        "messages.npc-not-spawned", "&c请先生成 NPC。"));
+                case DIFFERENT_WORLD -> sender.sendMessage(Component.text(
+                        "NPC和目标不在同一个世界", NamedTextColor.RED));
+                case TOO_FAR -> sender.sendMessage(Component.text(String.format(Locale.ROOT,
+                        "目标超过最大移动距离 %.0f 格", plugin.getNpcManager().getMaxMoveDistance()),
+                        NamedTextColor.RED));
+                case INVALID_LOCATION -> sender.sendMessage(Component.text(
+                        "目标坐标无效", NamedTextColor.RED));
+                case INVALID_SPEED -> sender.sendMessage(Component.text(
+                        "速度必须在 0.1 到 2.0 之间", NamedTextColor.RED));
+                case NO_PATH -> sender.sendMessage(Component.text(
+                        "找不到可行走路径，请选择地面上的可达坐标", NamedTextColor.RED));
             }
         }));
     }

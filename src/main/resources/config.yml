@@ -23,7 +23,7 @@ npc:
   chat-format: "<%npc_name%> %message%"
   default-speed: 1.0
   arrival-distance: 1.5
-  max-move-distance: 128.0
+  max-move-distance: 512.0
 
 # 消息配置
 messages:

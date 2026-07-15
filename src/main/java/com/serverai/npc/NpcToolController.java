@@ -135,16 +135,23 @@ public final class NpcToolController {
     }
 
     private void completeMove(CompletableFuture<String> result,
-                              CompletableFuture<Boolean> movement) {
-        movement.whenComplete((started, error) -> {
+                              CompletableFuture<NpcManager.MoveResult> movement) {
+        movement.whenComplete((moveResult, error) -> {
             if (error != null) {
                 result.completeExceptionally(error);
-            } else if (Boolean.TRUE.equals(started)) {
-                result.complete("NPC started moving");
-            } else if (!npcManager.isSpawned()) {
-                result.complete("Error: NPC is not spawned");
             } else {
-                result.complete("Error: destination is in another world, too far away, or unreachable");
+                result.complete(switch (moveResult) {
+                    case STARTED -> "NPC started moving";
+                    case ALREADY_THERE -> "NPC is already near the destination";
+                    case NOT_SPAWNED -> "Error: NPC is not spawned";
+                    case DIFFERENT_WORLD -> "Error: NPC and destination are in different worlds";
+                    case TOO_FAR -> String.format(Locale.ROOT,
+                            "Error: destination exceeds the maximum movement distance of %.0f blocks",
+                            npcManager.getMaxMoveDistance());
+                    case INVALID_LOCATION -> "Error: destination coordinates are invalid";
+                    case INVALID_SPEED -> "Error: speed must be between 0.1 and 2.0";
+                    case NO_PATH -> "Error: no walkable path to the destination";
+                });
             }
         });
     }
@@ -158,13 +165,15 @@ public final class NpcToolController {
                                 property("x", "number", "Target X coordinate"),
                                 property("y", "number", "Target Y coordinate"),
                                 property("z", "number", "Target Z coordinate"),
-                                property("speed", "number", "Optional speed from 0.1 to 2.0")),
+                                boundedNumberProperty("speed",
+                                        "Optional speed from 0.1 to 2.0", 0.1, 2.0)),
                         "world", "x", "y", "z"),
                 tool("npc_move_to_player",
                         "Move the spawned NPC to an online player. Prefer this when asked to come or follow once.",
                         properties(
                                 property("player", "string", "Exact online player name"),
-                                property("speed", "number", "Optional speed from 0.1 to 2.0")),
+                                boundedNumberProperty("speed",
+                                        "Optional speed from 0.1 to 2.0", 0.1, 2.0)),
                         "player"),
                 tool("npc_stop", "Stop the spawned NPC immediately.",
                         mapper.createObjectNode()),
@@ -214,6 +223,14 @@ public final class NpcToolController {
         property.put("name", name);
         property.put("type", type);
         property.put("description", description);
+        return property;
+    }
+
+    private ObjectNode boundedNumberProperty(String name, String description,
+                                             double minimum, double maximum) {
+        ObjectNode property = property(name, "number", description);
+        property.put("minimum", minimum);
+        property.put("maximum", maximum);
         return property;
     }
 
