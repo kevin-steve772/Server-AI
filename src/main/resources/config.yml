@@ -15,6 +15,17 @@ api:
   # 请求超时时间 (秒)
   timeout: 30
 
+# NPC 系统配置
+npc:
+  # 默认 NPC 类型
+  default-type: "PLAYER"
+  # 最大同时存在的 NPC 数量
+  max-npcs: 20
+  # NPC 移动速度 (默认 1.0)
+  default-speed: 1.0
+  # NPC 到达目标判定距离
+  arrival-distance: 2.0
+
 # 消息配置
 messages:
   no-permission: "&c你没有权限执行此命令。"
