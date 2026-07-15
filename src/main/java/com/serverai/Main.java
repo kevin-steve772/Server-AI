@@ -1,42 +1,39 @@
 package com.serverai;
 
 import com.serverai.command.AskCommand;
-import com.serverai.command.NPCCommand;
-import com.serverai.npc.NPCFunctionHandler;
-import com.serverai.npc.NPCManager;
+import com.serverai.command.NpcCommand;
+import com.serverai.npc.NpcManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 public final class Main extends JavaPlugin {
 
     private static Main instance;
     private AiClient aiClient;
-    private NPCManager npcManager;
-    private NPCFunctionHandler functionHandler;
-    private final ConcurrentHashMap<UUID, Long> cooldowns = new ConcurrentHashMap<>();
+    private NpcManager npcManager;
+    private java.util.Map<UUID, Long> cooldowns;
 
     @Override
     public void onEnable() {
         instance = this;
         saveDefaultConfig();
         reloadConfig();
+        cooldowns = new java.util.concurrent.ConcurrentHashMap<>();
         initAiClient();
-        initNpcSystem();
+        npcManager = new NpcManager(this);
 
         Objects.requireNonNull(getCommand("ask")).setExecutor(new AskCommand(this));
-        Objects.requireNonNull(getCommand("npc")).setExecutor(new NPCCommand(this));
+        Objects.requireNonNull(getCommand("npc")).setExecutor(new NpcCommand(this));
 
-        getLogger().info("Server-AI 已启用 (Folia + Citizens 支持)");
+        getLogger().info("Server-AI v" + getPluginMeta().getVersion() + " 已启用");
     }
 
     @Override
     public void onDisable() {
-        if (npcManager != null) {
-            npcManager.removeAll();
-        }
+        if (npcManager != null) npcManager.despawn();
         getLogger().info("Server-AI 已禁用");
     }
 
@@ -59,47 +56,18 @@ public final class Main extends JavaPlugin {
         }
 
         aiClient = new AiClient(key, endpoint, model, maxTokens, temperature, timeout);
-
-        if (functionHandler != null) {
-            aiClient.setTools(functionHandler.getToolDefinitions(), functionHandler::executeFunction);
-        }
     }
 
-    private void initNpcSystem() {
-        if (!getServer().getPluginManager().isPluginEnabled("Citizens")) {
-            getLogger().warning("Citizens 插件未安装或未启用，NPC 功能将不可用");
-            return;
-        }
-        npcManager = new NPCManager(this);
-        functionHandler = new NPCFunctionHandler(this, npcManager);
-        aiClient.setTools(functionHandler.getToolDefinitions(), functionHandler::executeFunction);
-        getLogger().info("NPC 系统已初始化");
-    }
+    public AiClient getAiClient() { return aiClient; }
+    public NpcManager getNpcManager() { return npcManager; }
 
-    public AiClient getAiClient() {
-        return aiClient;
-    }
-
-    public NPCManager getNpcManager() {
-        return npcManager;
-    }
-
-    public NPCFunctionHandler getFunctionHandler() {
-        return functionHandler;
-    }
-
-    public long getCooldownSeconds() {
-        return getConfig().getInt("cooldown", 5);
-    }
+    public long getCooldownSeconds() { return getConfig().getInt("cooldown", 5); }
 
     public boolean checkCooldown(UUID playerId) {
         Long lastUse = cooldowns.get(playerId);
         long now = System.currentTimeMillis();
         long cooldownMs = TimeUnit.SECONDS.toMillis(getCooldownSeconds());
-
-        if (lastUse != null && (now - lastUse) < cooldownMs) {
-            return false;
-        }
+        if (lastUse != null && (now - lastUse) < cooldownMs) return false;
         cooldowns.put(playerId, now);
         return true;
     }
@@ -111,7 +79,5 @@ public final class Main extends JavaPlugin {
         return Math.max(0, TimeUnit.MILLISECONDS.toSeconds(remaining));
     }
 
-    public static Main getInstance() {
-        return instance;
-    }
+    public static Main getInstance() { return instance; }
 }

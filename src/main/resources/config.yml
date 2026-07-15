@@ -1,30 +1,16 @@
 # AI API 配置
 api:
-  # API 密钥 (必填)
   key: "your-api-key-here"
-  # API 地址 (OpenAI 兼容格式)
-  # 例如: https://api.openai.com/v1
-  # 例如: https://api.deepseek.com/v1
   endpoint: "https://api.openai.com/v1"
-  # 模型名称
   model: "gpt-3.5-turbo"
-  # 最大令牌数
   max-tokens: 1024
-  # 温度 (0.0 - 2.0)
   temperature: 0.7
-  # 请求超时时间 (秒)
   timeout: 30
 
-# NPC 系统配置
+# NPC 配置 (使用流浪商人作为NPC形象)
 npc:
-  # 默认 NPC 类型
-  default-type: "PLAYER"
-  # 最大同时存在的 NPC 数量
-  max-npcs: 20
-  # NPC 移动速度 (默认 1.0)
-  default-speed: 1.0
-  # NPC 到达目标判定距离
-  arrival-distance: 2.0
+  name: "&b[AI]助手"
+  chat-format: "<%npc_name%> %message%"
 
 # 消息配置
 messages:
@@ -33,9 +19,11 @@ messages:
   thinking: "&e正在思考中，请稍候..."
   no-key: "&cAPI密钥未配置，请设置 config.yml 中的 api.key"
   error: "&c请求AI时出错: %error%"
-  rate-limit: "&c请求过于频繁，请稍后再试。"
   cooldown: "&c请等待 %seconds% 秒后再询问。"
   reloaded: "&a配置已重载。"
+  broadcast-question: "&6[提问] &e%sender%&6: &f%question%"
+  broadcast-answer: "&b[AI] %answer%"
+  npc-say-format: "%message%"
 
 # 冷却时间 (秒)
 cooldown: 5
