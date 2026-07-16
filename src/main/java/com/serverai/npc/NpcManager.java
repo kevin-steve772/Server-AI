@@ -2,13 +2,21 @@ package com.serverai.npc;
 
 import com.serverai.Main;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
+import net.citizensnpcs.api.CitizensAPI;
+import net.citizensnpcs.api.npc.NPC;
+import net.citizensnpcs.api.npc.NPCRegistry;
+import net.citizensnpcs.api.trait.trait.Equipment;
+import net.citizensnpcs.api.trait.trait.Skin;
+import net.citizensnpcs.api.ai.Navigator;
+import net.citizensnpcs.npc.pathfinder.PathType;
+import net.citizensnpcs.util.NPCCreator;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.EntityType;
-import org.bukkit.entity.WanderingTrader;
-import org.bukkit.potion.PotionEffectType;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -24,10 +32,12 @@ public final class NpcManager {
     private static final int MAX_AIRBORNE_WAIT_CHECKS = 20;
 
     private final Main plugin;
+    private final NPCRegistry registry;
 
     private volatile Component npcName;
     private volatile String plainNpcName;
-    private volatile WanderingTrader npcEntity;
+    private volatile String npcSkin;
+    private volatile NPC npc;
     private volatile ScheduledTask movementTask;
     private volatile Location movementTarget;
     private volatile Location lastProgressLocation;
@@ -39,6 +49,7 @@ public final class NpcManager {
 
     public NpcManager(Main plugin) {
         this.plugin = plugin;
+        this.registry = CitizensAPI.getNPCRegistry();
         reloadConfig();
     }
 
@@ -46,6 +57,7 @@ public final class NpcManager {
         Component updatedName = plugin.getMessages().get("npc.name", "&b[AI]助手");
         npcName = updatedName;
         plainNpcName = plugin.getMessages().plain(updatedName);
+        npcSkin = plugin.getConfig().getString("npc.skin", "");
         defaultSpeed = clamp(plugin.getConfig().getDouble("npc.default-speed", 1.0),
                 MIN_SPEED, MAX_SPEED);
         arrivalDistance = clamp(
@@ -53,9 +65,13 @@ public final class NpcManager {
         maxMoveDistance = clamp(
                 plugin.getConfig().getDouble("npc.max-move-distance", 512.0), 8.0, 512.0);
 
-        WanderingTrader entity = npcEntity;
-        if (entity != null) {
-            runOnEntity(entity, () -> entity.customName(updatedName));
+        NPC entity = npc;
+        if (entity != null && entity.isSpawned()) {
+            entity.setName(npcName);
+            if (!npcSkin.isBlank()) {
+                Skin skinTrait = entity.getOrAddTrait(Skin.class);
+                skinTrait.setSkinName(npcSkin);
+            }
         }
     }
 
@@ -66,35 +82,34 @@ public final class NpcManager {
         }
         despawn();
 
-        WanderingTrader trader = (WanderingTrader) world.spawnEntity(
-                location, EntityType.WANDERING_TRADER);
-        trader.customName(npcName);
-        trader.setCustomNameVisible(true);
-        trader.setAI(false);
-        trader.setInvulnerable(true);
-        trader.setCollidable(false);
-        trader.setSilent(true);
-        trader.setPersistent(false);
-        trader.setRemoveWhenFarAway(false);
-        trader.setDespawnDelay(Integer.MAX_VALUE);
-        trader.setCanDrinkPotion(false);
-        trader.setCanDrinkMilk(false);
-        restoreVisibility(trader);
+        NPC newNpc = NPCCreator.createNPC(EntityType.PLAYER, npcName);
+        newNpc.spawn(location);
+        newNpc.setProtected(true);
+        newNpc.setFlyable(false);
+        newNpc.setInvulnerable(true);
+        newNpc.setCollidable(false);
 
-        npcEntity = trader;
+        Navigator navigator = newNpc.getNavigator();
+        navigator.setLocalPathfinder(PathType.PLAYER_REALISTIC);
+
+        if (!npcSkin.isBlank()) {
+            Skin skinTrait = newNpc.getOrAddTrait(Skin.class);
+            skinTrait.setSkinName(npcSkin);
+        }
+
+        npc = newNpc;
         plugin.getLogger().info("NPC spawned: " + plainNpcName);
         return true;
     }
 
     public void despawn() {
-        WanderingTrader entity = npcEntity;
+        NPC entity = npc;
         if (entity != null) {
             cancelMovementMonitor();
-            npcEntity = null;
-            runOnEntity(entity, () -> {
-                entity.getPathfinder().stopPathfinding();
-                entity.remove();
-            });
+            npc = null;
+            if (entity.isSpawned()) {
+                entity.destroy();
+            }
             plugin.getLogger().info("NPC despawned");
         }
     }
@@ -120,10 +135,10 @@ public final class NpcManager {
 
     public CompletableFuture<NpcState> getState() {
         return callOnEntity(entity -> {
-            Location location = entity.getLocation();
+            Location location = entity.getEntity().getLocation();
             Location target = movementTarget;
             return new NpcState(
-                    entity.getWorld().getName(),
+                    entity.getEntity().getWorld().getName(),
                     location.getX(),
                     location.getY(),
                     location.getZ(),
@@ -144,8 +159,51 @@ public final class NpcManager {
                         "npc_name", Component.text(name)))));
     }
 
+    public void equip(ItemStack handItem) {
+        NPC entity = npc;
+        if (entity != null && entity.isSpawned()) {
+            Equipment equip = entity.getOrAddTrait(Equipment.class);
+            equip.set(Equipment.EquipmentSlot.HAND, handItem);
+        }
+    }
+
+    public void setArmor(ItemStack helmet, ItemStack chest, ItemStack legs, ItemStack boots) {
+        NPC entity = npc;
+        if (entity != null && entity.isSpawned()) {
+            Equipment equip = entity.getOrAddTrait(Equipment.class);
+            if (helmet != null) equip.set(Equipment.EquipmentSlot.HELMET, helmet);
+            if (chest != null) equip.set(Equipment.EquipmentSlot.CHESTPLATE, chest);
+            if (legs != null) equip.set(Equipment.EquipmentSlot.LEGGINGS, legs);
+            if (boots != null) equip.set(Equipment.EquipmentSlot.BOOTS, boots);
+        }
+    }
+
+    public void lookAt(Location location) {
+        NPC entity = npc;
+        if (entity != null && entity.isSpawned()) {
+            entity.faceLocation(location);
+        }
+    }
+
+    public void teleport(Location location) {
+        NPC entity = npc;
+        if (entity != null && entity.isSpawned()) {
+            entity.teleport(location, true);
+        }
+    }
+
+    public void setSkin(String skinName) {
+        this.npcSkin = skinName;
+        NPC entity = npc;
+        if (entity != null && entity.isSpawned()) {
+            Skin skinTrait = entity.getOrAddTrait(Skin.class);
+            skinTrait.setSkinName(skinName);
+        }
+    }
+
     public boolean isSpawned() {
-        return npcEntity != null;
+        NPC entity = npc;
+        return entity != null && entity.isSpawned();
     }
 
     public boolean isMoving() {
@@ -164,22 +222,15 @@ public final class NpcManager {
         return plainNpcName;
     }
 
-    public WanderingTrader getEntity() {
-        return npcEntity;
+    public NPC getEntity() {
+        return npc;
     }
 
-    public void keepVisible() {
-        WanderingTrader entity = npcEntity;
-        if (entity != null) {
-            runOnEntity(entity, () -> restoreVisibility(entity));
-        }
-    }
-
-    private MoveResult startMovement(WanderingTrader entity, Location target, double speed) {
-        if (target.getWorld() == null || !entity.getWorld().equals(target.getWorld())) {
+    private MoveResult startMovement(NPC entity, Location target, double speed) {
+        if (target.getWorld() == null || !entity.getEntity().getWorld().equals(target.getWorld())) {
             return MoveResult.DIFFERENT_WORLD;
         }
-        Location currentLocation = entity.getLocation();
+        Location currentLocation = entity.getEntity().getLocation();
         double distanceSquared = currentLocation.distanceSquared(target);
         if (distanceSquared > maxMoveDistance * maxMoveDistance) {
             return MoveResult.TOO_FAR;
@@ -190,11 +241,9 @@ public final class NpcManager {
         }
 
         cancelMovementMonitor();
-        entity.getPathfinder().stopPathfinding();
-        entity.setAI(true);
+        entity.getNavigator().cancelNavigation();
         boolean canPathNow = canStartGroundPath(entity);
         if (canPathNow && !startNextPathSegment(entity, target, speed)) {
-            entity.setAI(false);
             return MoveResult.NO_PATH;
         }
 
@@ -202,22 +251,21 @@ public final class NpcManager {
         lastProgressLocation = currentLocation;
         stalledRepaths = 0;
         airborneWaitChecks = 0;
-        movementTask = entity.getScheduler().runAtFixedRate(plugin,
+        movementTask = entity.getEntity().getScheduler().runAtFixedRate(plugin,
                 task -> monitorMovement(entity, target, speed, task),
                 () -> clearRetiredEntity(entity), 1L, 5L);
         return MoveResult.STARTED;
     }
 
-    private void monitorMovement(WanderingTrader entity, Location target, double speed,
+    private void monitorMovement(NPC entity, Location target, double speed,
                                  ScheduledTask task) {
-        if (npcEntity != entity || movementTask != task || !entity.isValid()) {
+        if (npc != entity || movementTask != task || !entity.isSpawned()) {
             clearMovementTask(task);
             return;
         }
-        restoreVisibility(entity);
 
-        Location currentLocation = entity.getLocation();
-        boolean arrived = entity.getWorld().equals(target.getWorld())
+        Location currentLocation = entity.getEntity().getLocation();
+        boolean arrived = entity.getEntity().getWorld().equals(target.getWorld())
                 && currentLocation.distanceSquared(target)
                 <= arrivalDistance * arrivalDistance;
         if (arrived) {
@@ -233,7 +281,7 @@ public final class NpcManager {
             stalledRepaths = 0;
         }
 
-        if (entity.getPathfinder().hasPath()) {
+        if (entity.getNavigator().isNavigating()) {
             return;
         }
 
@@ -254,11 +302,11 @@ public final class NpcManager {
         startNextPathSegment(entity, target, speed);
     }
 
-    private boolean startNextPathSegment(WanderingTrader entity, Location target, double speed) {
-        Location current = entity.getLocation();
+    private boolean startNextPathSegment(NPC entity, Location target, double speed) {
+        Location current = entity.getEntity().getLocation();
         double distance = current.distance(target);
         if (distance <= PATH_SEGMENT_DISTANCE) {
-            return entity.getPathfinder().moveTo(target, speed);
+            return entity.getNavigator().setTarget(target, true, (float) speed);
         }
 
         double ratio = PATH_SEGMENT_DISTANCE / distance;
@@ -266,31 +314,25 @@ public final class NpcManager {
                 (target.getX() - current.getX()) * ratio,
                 (target.getY() - current.getY()) * ratio,
                 (target.getZ() - current.getZ()) * ratio);
-        if (entity.getPathfinder().moveTo(waypoint, speed)) {
+        if (entity.getNavigator().setTarget(waypoint, true, (float) speed)) {
             return true;
         }
-        return entity.getPathfinder().moveTo(target, speed);
+        return entity.getNavigator().setTarget(target, true, (float) speed);
     }
 
-    private static boolean canStartGroundPath(WanderingTrader entity) {
-        return entity.isOnGround() || entity.isInWater() || entity.isInsideVehicle();
+    private static boolean canStartGroundPath(NPC entity) {
+        return entity.getEntity().isOnGround()
+                || entity.getEntity().isInWater()
+                || entity.getEntity().isInsideVehicle();
     }
 
-    private static void restoreVisibility(WanderingTrader entity) {
-        entity.clearActiveItem();
-        entity.removePotionEffect(PotionEffectType.INVISIBILITY);
-        entity.setInvisible(false);
-    }
-
-    private void finishMovement(WanderingTrader entity, ScheduledTask currentTask) {
+    private void finishMovement(NPC entity, ScheduledTask currentTask) {
         if (currentTask != null && movementTask != currentTask) {
             currentTask.cancel();
             return;
         }
 
-        entity.getPathfinder().stopPathfinding();
-        entity.setAI(false);
-        restoreVisibility(entity);
+        entity.getNavigator().cancelNavigation();
         movementTarget = null;
         lastProgressLocation = null;
         stalledRepaths = 0;
@@ -330,23 +372,23 @@ public final class NpcManager {
         task.cancel();
     }
 
-    private void clearRetiredEntity(WanderingTrader entity) {
-        if (npcEntity == entity) {
-            npcEntity = null;
+    private void clearRetiredEntity(NPC entity) {
+        if (npc == entity) {
+            npc = null;
             cancelMovementMonitor();
         }
     }
 
-    private <T> CompletableFuture<T> callOnEntity(Function<WanderingTrader, T> operation,
+    private <T> CompletableFuture<T> callOnEntity(Function<NPC, T> operation,
                                                    T unavailableValue) {
-        WanderingTrader entity = npcEntity;
+        NPC entity = npc;
         if (entity == null || !plugin.isEnabled()) {
             return CompletableFuture.completedFuture(unavailableValue);
         }
 
         CompletableFuture<T> result = new CompletableFuture<>();
         Runnable action = () -> {
-            if (npcEntity != entity || !entity.isValid()) {
+            if (npc != entity || !entity.isSpawned()) {
                 result.complete(unavailableValue);
                 return;
             }
@@ -357,29 +399,19 @@ public final class NpcManager {
             }
         };
 
-        if (Bukkit.isOwnedByCurrentRegion(entity)) {
+        if (Bukkit.isOwnedByCurrentRegion(entity.getEntity())) {
             action.run();
         } else {
-            boolean scheduled = entity.getScheduler().execute(plugin, action, () -> {
-                clearRetiredEntity(entity);
-                result.complete(unavailableValue);
-            }, 1L);
+            boolean scheduled = entity.getEntity().getScheduler().execute(plugin, action,
+                    () -> {
+                        clearRetiredEntity(entity);
+                        result.complete(unavailableValue);
+                    }, 1L);
             if (!scheduled) {
                 result.complete(unavailableValue);
             }
         }
         return result;
-    }
-
-    private void runOnEntity(WanderingTrader entity, Runnable action) {
-        if (Bukkit.isOwnedByCurrentRegion(entity)) {
-            action.run();
-            return;
-        }
-        if (plugin.isEnabled()) {
-            entity.getScheduler().execute(plugin, action,
-                    () -> clearRetiredEntity(entity), 1L);
-        }
     }
 
     private static boolean isValidLocation(Location location) {

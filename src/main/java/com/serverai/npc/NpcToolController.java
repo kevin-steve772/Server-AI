@@ -7,8 +7,11 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.serverai.Main;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.List;
 import java.util.Locale;
@@ -43,6 +46,11 @@ public final class NpcToolController {
                 case "npc_stop" -> stop();
                 case "npc_say" -> say(arguments);
                 case "npc_get_location" -> getLocation();
+                case "npc_equip" -> equip(arguments);
+                case "npc_armor" -> armor(arguments);
+                case "npc_skin" -> setSkin(arguments);
+                case "npc_teleport" -> teleport(arguments);
+                case "npc_look_at" -> lookAt(arguments);
                 default -> CompletableFuture.completedFuture("Error: unknown NPC tool " + name);
             };
         } catch (IllegalArgumentException exception) {
@@ -134,6 +142,135 @@ public final class NpcToolController {
         });
     }
 
+    private CompletableFuture<String> equip(JsonNode arguments) {
+        if (!npcManager.isSpawned()) {
+            return CompletableFuture.completedFuture("Error: NPC is not spawned");
+        }
+        String material = requiredText(arguments, "material");
+        String customName = arguments.has("custom_name") ? arguments.get("custom_name").asText() : null;
+        int amount = arguments.has("amount") ? arguments.get("amount").asInt() : 1;
+
+        try {
+            Material mat = Material.valueOf(material.toUpperCase());
+            ItemStack item = new ItemStack(mat, amount);
+            if (customName != null && !customName.isBlank()) {
+                ItemMeta meta = item.getItemMeta();
+                meta.displayName(plugin.getMessages().markdown(customName));
+                item.setItemMeta(meta);
+            }
+            npcManager.equip(item);
+            return CompletableFuture.completedFuture("NPC equipped with " + material);
+        } catch (IllegalArgumentException e) {
+            return CompletableFuture.completedFuture("Error: invalid material: " + material);
+        }
+    }
+
+    private CompletableFuture<String> armor(JsonNode arguments) {
+        if (!npcManager.isSpawned()) {
+            return CompletableFuture.completedFuture("Error: NPC is not spawned");
+        }
+        ItemStack helmet = parseItem(arguments, "helmet");
+        ItemStack chest = parseItem(arguments, "chestplate");
+        ItemStack legs = parseItem(arguments, "leggings");
+        ItemStack boots = parseItem(arguments, "boots");
+
+        if (helmet == null && chest == null && legs == null && boots == null) {
+            return CompletableFuture.completedFuture("Error: no armor items specified");
+        }
+        npcManager.setArmor(helmet, chest, legs, boots);
+        return CompletableFuture.completedFuture("NPC armor updated");
+    }
+
+    private ItemStack parseItem(JsonNode arguments, String field) {
+        if (!arguments.has(field) || arguments.get(field).isNull()) {
+            return null;
+        }
+        String material = arguments.get(field).asText();
+        try {
+            return new ItemStack(Material.valueOf(material.toUpperCase()));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private CompletableFuture<String> setSkin(JsonNode arguments) {
+        if (!npcManager.isSpawned()) {
+            return CompletableFuture.completedFuture("Error: NPC is not spawned");
+        }
+        String skinName = requiredText(arguments, "skin");
+        npcManager.getEntity().getOrAddTrait(net.citizensnpcs.api.trait.trait.Skin.class).setSkinName(skinName);
+        return CompletableFuture.completedFuture("NPC skin set to " + skinName);
+    }
+
+    private CompletableFuture<String> teleport(JsonNode arguments) {
+        String worldName = requiredText(arguments, "world");
+        double x = requiredNumber(arguments, "x");
+        double y = requiredNumber(arguments, "y");
+        double z = requiredNumber(arguments, "z");
+
+        CompletableFuture<String> result = new CompletableFuture<>();
+        if (!plugin.isEnabled()) {
+            result.complete("Error: plugin is disabled");
+            return result;
+        }
+        boolean scheduled = plugin.runGlobal(() -> {
+            World world = Bukkit.getWorld(worldName);
+            if (world == null) {
+                result.complete("Error: world not found: " + worldName);
+                return;
+            }
+            Location loc = new Location(world, x, y, z);
+            npcManager.getEntity().teleport(loc);
+            result.complete("NPC teleported to " + worldName + " " + x + " " + y + " " + z);
+        });
+        if (!scheduled) {
+            result.complete("Error: plugin is disabled");
+        }
+        return result;
+    }
+
+    private CompletableFuture<String> lookAt(JsonNode arguments) {
+        String targetType = requiredText(arguments, "target_type"); // "coordinates" or "player"
+        CompletableFuture<String> result = new CompletableFuture<>();
+
+        if (!plugin.isEnabled()) {
+            result.complete("Error: plugin is disabled");
+            return result;
+        }
+
+        if ("coordinates".equals(targetType)) {
+            String worldName = requiredText(arguments, "world");
+            double x = requiredNumber(arguments, "x");
+            double y = requiredNumber(arguments, "y");
+            double z = requiredNumber(arguments, "z");
+
+            plugin.runGlobal(() -> {
+                World world = Bukkit.getWorld(worldName);
+                if (world == null) {
+                    result.complete("Error: world not found: " + worldName);
+                    return;
+                }
+                Location loc = new Location(world, x, y, z);
+                npcManager.getEntity().faceLocation(loc);
+                result.complete("NPC looking at " + worldName + " " + x + " " + y + " " + z);
+            });
+        } else if ("player".equals(targetType)) {
+            String playerName = requiredText(arguments, "player");
+            plugin.runGlobal(() -> {
+                Player player = Bukkit.getPlayerExact(playerName);
+                if (player == null || !player.isOnline()) {
+                    result.complete("Error: player not online: " + playerName);
+                    return;
+                }
+                npcManager.getEntity().faceEntity(player);
+                result.complete("NPC looking at player " + playerName);
+            });
+        } else {
+            result.complete("Error: invalid target_type, must be 'coordinates' or 'player'");
+        }
+        return result;
+    }
+
     private void completeMove(CompletableFuture<String> result,
                               CompletableFuture<NpcManager.MoveResult> movement) {
         movement.whenComplete((moveResult, error) -> {
@@ -159,7 +296,7 @@ public final class NpcToolController {
     private List<ObjectNode> createDefinitions() {
         return List.of(
                 tool("npc_move",
-                        "Move the spawned Minecraft NPC to coordinates in its current world.",
+                        "Move the spawned NPC to coordinates in its current world.",
                         properties(
                                 property("world", "string", "Exact Minecraft world name"),
                                 property("x", "number", "Target X coordinate"),
@@ -181,7 +318,38 @@ public final class NpcToolController {
                         properties(property("message", "string", "Message for the NPC to say")),
                         "message"),
                 tool("npc_get_location", "Get the spawned NPC location and movement state.",
-                        mapper.createObjectNode()));
+                        mapper.createObjectNode()),
+                tool("npc_equip", "Equip an item in the NPC's hand.",
+                        properties(
+                                property("material", "string", "Minecraft material name (e.g. DIAMOND_SWORD)"),
+                                property("custom_name", "string", "Optional custom display name"),
+                                property("amount", "integer", "Optional item count (default 1)")),
+                        "material"),
+                tool("npc_armor", "Set armor on the NPC.",
+                        properties(
+                                property("helmet", "string", "Helmet material (e.g. DIAMOND_HELMET)"),
+                                property("chestplate", "string", "Chestplate material"),
+                                property("leggings", "string", "Leggings material"),
+                                property("boots", "string", "Boots material"))),
+                tool("npc_skin", "Change the NPC's skin by player name.",
+                        properties(property("skin", "string", "Player name for skin")),
+                        "skin"),
+                tool("npc_teleport", "Teleport the NPC instantly to coordinates.",
+                        properties(
+                                property("world", "string", "World name"),
+                                property("x", "number", "Target X coordinate"),
+                                property("y", "number", "Target Y coordinate"),
+                                property("z", "number", "Target Z coordinate")),
+                        "world", "x", "y", "z"),
+                tool("npc_look_at", "Make the NPC look at coordinates or a player.",
+                        properties(
+                                property("target_type", "string", "Either 'coordinates' or 'player'"),
+                                property("world", "string", "World name (for coordinates)"),
+                                property("x", "number", "Target X (for coordinates)"),
+                                property("y", "number", "Target Y (for coordinates)"),
+                                property("z", "number", "Target Z (for coordinates)"),
+                                property("player", "string", "Player name (for player)")),
+                        "target_type"));
     }
 
     private ObjectNode tool(String name, String description, ObjectNode properties,

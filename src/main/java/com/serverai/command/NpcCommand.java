@@ -7,11 +7,14 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -24,7 +27,7 @@ import java.util.concurrent.CompletableFuture;
 public final class NpcCommand implements TabExecutor {
 
     private static final Component USAGE = Component.text(
-            "用法: /npc spawn | remove | say <消息> | move <世界> <x> <y> <z> [速度] | come | stop | info",
+            "用法: /npc spawn | remove | say <消息> | move <世界> <x> <y> <z> [速度] | come | stop | info | equip <材质> [名称] [数量] | armor [头盔] [胸甲] [护腿] [靴子] | skin <玩家名> | tp <世界> <x> <y> <z> | look <coordinates|player> <世界/玩家名> [x] [y] [z]",
             NamedTextColor.YELLOW);
 
     private final Main plugin;
@@ -58,6 +61,11 @@ public final class NpcCommand implements TabExecutor {
             case "stop" -> completeBoolean(sender, plugin.getNpcManager().stopMovement(),
                     "NPC已停止移动", "NPC未生成");
             case "info" -> info(sender);
+            case "equip" -> equip(sender, args);
+            case "armor" -> armor(sender, args);
+            case "skin" -> skin(sender, args);
+            case "tp", "teleport" -> teleport(sender, args);
+            case "look" -> look(sender, args);
             default -> sender.sendMessage(USAGE);
         }
         return true;
@@ -147,6 +155,136 @@ public final class NpcCommand implements TabExecutor {
                 }));
     }
 
+    private void equip(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            sender.sendMessage(Component.text("用法: /npc equip <材质> [名称] [数量]", NamedTextColor.YELLOW));
+            return;
+        }
+        if (!requireNpc(sender)) {
+            return;
+        }
+        try {
+            Material material = Material.valueOf(args[1].toUpperCase());
+            String customName = args.length > 2 ? args[2] : null;
+            int amount = args.length > 3 ? Integer.parseInt(args[3]) : 1;
+            ItemStack item = new ItemStack(material, amount);
+            if (customName != null && !customName.isBlank()) {
+                ItemMeta meta = item.getItemMeta();
+                meta.displayName(plugin.getMessages().markdown(customName));
+                item.setItemMeta(meta);
+            }
+            plugin.getNpcManager().equip(item);
+            sender.sendMessage(Component.text("NPC已装备: " + material, NamedTextColor.GREEN));
+        } catch (IllegalArgumentException e) {
+            sender.sendMessage(Component.text("无效材质: " + args[1], NamedTextColor.RED));
+        }
+    }
+
+    private void armor(CommandSender sender, String[] args) {
+        if (!requireNpc(sender)) {
+            return;
+        }
+        ItemStack helmet = args.length > 1 && !args[1].isBlank() ? parseItem(args[1]) : null;
+        ItemStack chest = args.length > 2 && !args[2].isBlank() ? parseItem(args[2]) : null;
+        ItemStack legs = args.length > 3 && !args[3].isBlank() ? parseItem(args[3]) : null;
+        ItemStack boots = args.length > 4 && !args[4].isBlank() ? parseItem(args[4]) : null;
+
+        if (helmet == null && chest == null && legs == null && boots == null) {
+            sender.sendMessage(Component.text("用法: /npc armor [头盔] [胸甲] [护腿] [靴子]", NamedTextColor.YELLOW));
+            return;
+        }
+        plugin.getNpcManager().setArmor(helmet, chest, legs, boots);
+        sender.sendMessage(Component.text("NPC护甲已更新", NamedTextColor.GREEN));
+    }
+
+    private ItemStack parseItem(String materialName) {
+        try {
+            return new ItemStack(Material.valueOf(materialName.toUpperCase()));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private void skin(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            sender.sendMessage(Component.text("用法: /npc skin <玩家名>", NamedTextColor.YELLOW));
+            return;
+        }
+        if (!requireNpc(sender)) {
+            return;
+        }
+        String skinName = args[1];
+        plugin.getNpcManager().getEntity().getOrAddTrait(net.citizensnpcs.api.trait.trait.Skin.class).setSkinName(skinName);
+        sender.sendMessage(Component.text("NPC皮肤已设置为: " + skinName, NamedTextColor.GREEN));
+    }
+
+    private void teleport(CommandSender sender, String[] args) {
+        if (args.length < 5) {
+            sender.sendMessage(Component.text("用法: /npc tp <世界> <x> <y> <z>", NamedTextColor.YELLOW));
+            return;
+        }
+        if (!requireNpc(sender)) {
+            return;
+        }
+        World world = Bukkit.getWorld(args[1]);
+        if (world == null) {
+            sender.sendMessage(Component.text("找不到世界: " + args[1], NamedTextColor.RED));
+            return;
+        }
+        try {
+            double x = finiteDouble(args[2]);
+            double y = finiteDouble(args[3]);
+            double z = finiteDouble(args[4]);
+            Location loc = new Location(world, x, y, z);
+            plugin.getNpcManager().getEntity().teleport(loc);
+            sender.sendMessage(Component.text("NPC已传送至 " + world.getName() + " " + x + " " + y + " " + z, NamedTextColor.GREEN));
+        } catch (NumberFormatException e) {
+            sender.sendMessage(Component.text("坐标必须是有效数字", NamedTextColor.RED));
+        }
+    }
+
+    private void look(CommandSender sender, String[] args) {
+        if (args.length < 3) {
+            sender.sendMessage(Component.text("用法: /npc look <coordinates|player> <世界/玩家名> [x] [y] [z]", NamedTextColor.YELLOW));
+            return;
+        }
+        if (!requireNpc(sender)) {
+            return;
+        }
+        String targetType = args[1].toLowerCase(Locale.ROOT);
+        if ("coordinates".equals(targetType) || "coord".equals(targetType)) {
+            if (args.length < 6) {
+                sender.sendMessage(Component.text("用法: /npc look coordinates <世界> <x> <y> <z>", NamedTextColor.YELLOW));
+                return;
+            }
+            World world = Bukkit.getWorld(args[2]);
+            if (world == null) {
+                sender.sendMessage(Component.text("找不到世界: " + args[2], NamedTextColor.RED));
+                return;
+            }
+            try {
+                double x = finiteDouble(args[3]);
+                double y = finiteDouble(args[4]);
+                double z = finiteDouble(args[5]);
+                plugin.getNpcManager().getEntity().faceLocation(new Location(world, x, y, z));
+                sender.sendMessage(Component.text("NPC正在看向坐标: " + x + " " + y + " " + z, NamedTextColor.GREEN));
+            } catch (NumberFormatException e) {
+                sender.sendMessage(Component.text("坐标必须是有效数字", NamedTextColor.RED));
+            }
+        } else if ("player".equals(targetType)) {
+            String playerName = args[2];
+            Player player = Bukkit.getPlayerExact(playerName);
+            if (player == null || !player.isOnline()) {
+                sender.sendMessage(Component.text("玩家不在线: " + playerName, NamedTextColor.RED));
+                return;
+            }
+            plugin.getNpcManager().getEntity().faceEntity(player);
+            sender.sendMessage(Component.text("NPC正在看向玩家: " + playerName, NamedTextColor.GREEN));
+        } else {
+            sender.sendMessage(Component.text("目标类型必须是 coordinates 或 player", NamedTextColor.RED));
+        }
+    }
+
     private void completeBoolean(CommandSender sender, CompletableFuture<Boolean> future,
                                  String successMessage, String failureMessage) {
         future.whenComplete((success, error) -> plugin.runForSender(sender, () -> {
@@ -223,10 +361,25 @@ public final class NpcCommand implements TabExecutor {
                                                  @NotNull String label,
                                                  @NotNull String[] args) {
         if (args.length == 1) {
-            return List.of("spawn", "remove", "say", "move", "come", "stop", "info");
+            return List.of("spawn", "remove", "say", "move", "come", "stop", "info", "equip", "armor", "skin", "tp", "look");
         }
-        if (args.length == 2 && args[0].equalsIgnoreCase("move")) {
+        if (args.length == 2 && (args[0].equalsIgnoreCase("move") || args[0].equalsIgnoreCase("tp") || args[0].equalsIgnoreCase("teleport"))) {
             return Bukkit.getWorlds().stream().map(World::getName).toList();
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("look")) {
+            return List.of("coordinates", "player");
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("look") && args[1].equalsIgnoreCase("player")) {
+            return Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("skin")) {
+            return Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("equip")) {
+            return List.of("DIAMOND_SWORD", "NETHERITE_SWORD", "GOLDEN_APPLE", "SHIELD");
+        }
+        if (args.length >= 2 && args[0].equalsIgnoreCase("armor")) {
+            return List.of("DIAMOND_HELMET", "DIAMOND_CHESTPLATE", "DIAMOND_LEGGINGS", "DIAMOND_BOOTS", "NETHERITE_HELMET", "NETHERITE_CHESTPLATE", "NETHERITE_LEGGINGS", "NETHERITE_BOOTS");
         }
         return Collections.emptyList();
     }
