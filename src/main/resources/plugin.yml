@@ -11,9 +11,9 @@ commands:
     usage: /ask <问题>
     aliases: [ai, 问]
     permission: serverai.ask
-  npc:
+  ainpc:
     description: 管理AI聊天NPC
-    usage: /npc spawn|remove|say|move|come|stop|info
+    usage: /ainpc spawn|remove|say|move|come|stop|info|equip|armor|skin|tp|look
     permission: serverai.npc
 
 permissions:

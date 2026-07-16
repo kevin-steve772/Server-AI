@@ -27,7 +27,7 @@ import java.util.concurrent.CompletableFuture;
 public final class NpcCommand implements TabExecutor {
 
     private static final Component USAGE = Component.text(
-            "用法: /npc spawn | remove | say <消息> | move <世界> <x> <y> <z> [速度] | come | stop | info | equip <材质> [名称] [数量] | armor [头盔] [胸甲] [护腿] [靴子] | skin <玩家名> | tp <世界> <x> <y> <z> | look <coordinates|player> <世界/玩家名> [x] [y] [z]",
+            "用法: /ainpc spawn | remove | say <消息> | move <世界> <x> <y> <z> [速度] | come | stop | info | equip <材质> [名称] [数量] | armor [头盔] [胸甲] [护腿] [靴子] | skin <玩家名> | tp <世界> <x> <y> <z> | look <coordinates|player> <世界/玩家名> [x] [y] [z]",
             NamedTextColor.YELLOW);
 
     private final Main plugin;
@@ -85,7 +85,7 @@ public final class NpcCommand implements TabExecutor {
 
     private void say(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage(Component.text("用法: /npc say <消息>", NamedTextColor.YELLOW));
+            sender.sendMessage(Component.text("用法: /ainpc say <消息>", NamedTextColor.YELLOW));
             return;
         }
         if (!requireNpc(sender)) {
@@ -98,7 +98,7 @@ public final class NpcCommand implements TabExecutor {
     private void move(CommandSender sender, String[] args) {
         if (args.length < 5 || args.length > 6) {
             sender.sendMessage(Component.text(
-                    "用法: /npc move <世界> <x> <y> <z> [速度]", NamedTextColor.YELLOW));
+                    "用法: /ainpc move <世界> <x> <y> <z> [速度]", NamedTextColor.YELLOW));
             return;
         }
         if (!requireNpc(sender)) {
@@ -207,7 +207,7 @@ public final class NpcCommand implements TabExecutor {
 
     private void skin(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage(Component.text("用法: /npc skin <玩家名>", NamedTextColor.YELLOW));
+            sender.sendMessage(Component.text("用法: /ainpc skin <玩家名>", NamedTextColor.YELLOW));
             return;
         }
         if (!requireNpc(sender)) {
@@ -220,7 +220,7 @@ public final class NpcCommand implements TabExecutor {
 
     private void teleport(CommandSender sender, String[] args) {
         if (args.length < 5) {
-            sender.sendMessage(Component.text("用法: /npc tp <世界> <x> <y> <z>", NamedTextColor.YELLOW));
+            sender.sendMessage(Component.text("用法: /ainpc tp <世界> <x> <y> <z>", NamedTextColor.YELLOW));
             return;
         }
         if (!requireNpc(sender)) {
@@ -245,7 +245,7 @@ public final class NpcCommand implements TabExecutor {
 
     private void look(CommandSender sender, String[] args) {
         if (args.length < 3) {
-            sender.sendMessage(Component.text("用法: /npc look <coordinates|player> <世界/玩家名> [x] [y] [z]", NamedTextColor.YELLOW));
+            sender.sendMessage(Component.text("用法: /ainpc look <coordinates|player> <世界/玩家名> [x] [y] [z]", NamedTextColor.YELLOW));
             return;
         }
         if (!requireNpc(sender)) {
@@ -361,7 +361,7 @@ public final class NpcCommand implements TabExecutor {
                                                  @NotNull String label,
                                                  @NotNull String[] args) {
         if (args.length == 1) {
-            return List.of("spawn", "remove", "say", "move", "come", "stop", "info", "equip", "armor", "skin", "tp", "look");
+            return List.of("spawn", "remove", "say", "move", "come", "stop", "info", "equip", "armor", "skin", "tp", "teleport", "look");
         }
         if (args.length == 2 && (args[0].equalsIgnoreCase("move") || args[0].equalsIgnoreCase("tp") || args[0].equalsIgnoreCase("teleport"))) {
             return Bukkit.getWorlds().stream().map(World::getName).toList();
