@@ -6,7 +6,7 @@
 
 - `/ask <问题>`：向 AI 提问并把问题、回答广播到服务器
 - `/ask reload`：热重载配置
-- `/npc spawn|remove|say|move|come|stop|info`：生成并控制流浪商人 NPC
+- `/npc spawn|remove|say|move|come|stop|info`：生成并控制 Paper 原版实体 NPC
 - AI Function Calling：AI 可移动、停止 NPC，查询位置或让 NPC 说话
 - 异步 HTTP 请求，不占用服务器区域线程
 - AI 回答支持标题、强调、代码、列表、引用、链接和表格等 Markdown 格式
@@ -15,7 +15,7 @@
 - 支持从环境变量读取 API 密钥
 - 支持无需鉴权的本地 OpenAI 兼容服务
 
-NPC 由插件直接创建，不依赖 Citizens，并通过 Paper Pathfinder 寻路。它是服务器实体而不是真实在线玩家；真实玩家身份需要独立 Minecraft 机器人账号登录。
+NPC 由插件直接创建，不依赖 Citizens，使用 Paper 服务端原版实体并通过简单路径移动模拟。它是服务器实体而不是真实在线玩家；真实玩家身份需要独立 Minecraft 机器人账号登录。
 
 ## 环境要求
 
@@ -99,6 +99,12 @@ mvn clean verify
 ```
 
 构建生成的插件 JAR 已包含并重定位 Jackson，避免依赖服务端内部版本或与其他插件冲突。
+
+## 说明
+
+- 该版本已移除对 Citizens 的依赖。
+- NPC 功能基于 Paper 原版实体实现，适合轻量场景和简单对话/移动控制。
+- 如果你需要更复杂的 NPC 行为、路径追踪或皮肤系统，仍然建议接入独立的实体/机器人方案。
 
 ## 自动发布
 

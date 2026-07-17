@@ -198,7 +198,7 @@ public final class NpcToolController {
             return CompletableFuture.completedFuture("Error: NPC is not spawned");
         }
         String skinName = requiredText(arguments, "skin");
-        npcManager.getEntity().getOrAddTrait(net.citizensnpcs.api.trait.trait.Skin.class).setSkinName(skinName);
+        npcManager.setSkin(skinName);
         return CompletableFuture.completedFuture("NPC skin set to " + skinName);
     }
 
@@ -251,7 +251,7 @@ public final class NpcToolController {
                     return;
                 }
                 Location loc = new Location(world, x, y, z);
-                npcManager.getEntity().faceLocation(loc);
+                npcManager.lookAt(loc);
                 result.complete("NPC looking at " + worldName + " " + x + " " + y + " " + z);
             });
         } else if ("player".equals(targetType)) {
@@ -262,7 +262,7 @@ public final class NpcToolController {
                     result.complete("Error: player not online: " + playerName);
                     return;
                 }
-                npcManager.getEntity().faceEntity(player);
+                npcManager.lookAt(player.getLocation());
                 result.complete("NPC looking at player " + playerName);
             });
         } else {

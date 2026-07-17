@@ -2,54 +2,45 @@ package com.serverai.npc;
 
 import com.serverai.Main;
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
-import net.citizensnpcs.api.CitizensAPI;
-import net.citizensnpcs.api.npc.NPC;
-import net.citizensnpcs.api.npc.NPCRegistry;
-import net.citizensnpcs.api.trait.trait.Equipment;
-import net.citizensnpcs.api.trait.trait.Skin;
-import net.citizensnpcs.api.ai.Navigator;
-import net.citizensnpcs.npc.pathfinder.PathType;
-import net.citizensnpcs.util.NPCCreator;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.potion.PotionEffectType;
+import org.bukkit.util.Vector;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
 
 public final class NpcManager {
 
     private static final double MIN_SPEED = 0.1;
     private static final double MAX_SPEED = 2.0;
-    private static final double PATH_SEGMENT_DISTANCE = 24.0;
-    private static final double PROGRESS_DISTANCE_SQUARED = 1.0;
-    private static final int MAX_STALLED_REPATHS = 3;
-    private static final int MAX_AIRBORNE_WAIT_CHECKS = 20;
+    private static final double ARRIVAL_DISTANCE_SQUARED = 1.0;
 
     private final Main plugin;
-    private final NPCRegistry registry;
+    private final Map<UUID, AINpc> npcs = new LinkedHashMap<>();
 
     private volatile Component npcName;
     private volatile String plainNpcName;
     private volatile String npcSkin;
-    private volatile NPC npc;
+    private volatile AINpc activeNpc;
     private volatile ScheduledTask movementTask;
     private volatile Location movementTarget;
-    private volatile Location lastProgressLocation;
-    private volatile int stalledRepaths;
-    private volatile int airborneWaitChecks;
     private volatile double defaultSpeed;
     private volatile double arrivalDistance;
     private volatile double maxMoveDistance;
 
     public NpcManager(Main plugin) {
         this.plugin = plugin;
-        this.registry = CitizensAPI.getNPCRegistry();
         reloadConfig();
     }
 
@@ -58,20 +49,14 @@ public final class NpcManager {
         npcName = updatedName;
         plainNpcName = plugin.getMessages().plain(updatedName);
         npcSkin = plugin.getConfig().getString("npc.skin", "");
-        defaultSpeed = clamp(plugin.getConfig().getDouble("npc.default-speed", 1.0),
-                MIN_SPEED, MAX_SPEED);
-        arrivalDistance = clamp(
-                plugin.getConfig().getDouble("npc.arrival-distance", 1.5), 0.5, 10.0);
-        maxMoveDistance = clamp(
-                plugin.getConfig().getDouble("npc.max-move-distance", 512.0), 8.0, 512.0);
+        defaultSpeed = clamp(plugin.getConfig().getDouble("npc.default-speed", 1.0), MIN_SPEED, MAX_SPEED);
+        arrivalDistance = clamp(plugin.getConfig().getDouble("npc.arrival-distance", 1.5), 0.5, 10.0);
+        maxMoveDistance = clamp(plugin.getConfig().getDouble("npc.max-move-distance", 512.0), 8.0, 512.0);
 
-        NPC entity = npc;
-        if (entity != null && entity.isSpawned()) {
-            entity.setName(npcName);
-            if (!npcSkin.isBlank()) {
-                Skin skinTrait = entity.getOrAddTrait(Skin.class);
-                skinTrait.setSkinName(npcSkin);
-            }
+        AINpc current = activeNpc;
+        if (current != null && current.isSpawned()) {
+            current.getEntity().setCustomName(plainNpcName);
+            current.getEntity().setCustomNameVisible(true);
         }
     }
 
@@ -82,36 +67,31 @@ public final class NpcManager {
         }
         despawn();
 
-        NPC newNpc = NPCCreator.createNPC(EntityType.PLAYER, npcName);
-        newNpc.spawn(location);
-        newNpc.setProtected(true);
-        newNpc.setFlyable(false);
-        newNpc.setInvulnerable(true);
-        newNpc.setCollidable(false);
-
-        Navigator navigator = newNpc.getNavigator();
-        navigator.setLocalPathfinder(PathType.PLAYER_REALISTIC);
-
-        if (!npcSkin.isBlank()) {
-            Skin skinTrait = newNpc.getOrAddTrait(Skin.class);
-            skinTrait.setSkinName(npcSkin);
+        Entity spawned = world.spawnEntity(location, EntityType.VILLAGER);
+        if (!(spawned instanceof LivingEntity livingEntity)) {
+            return false;
         }
+        livingEntity.setCustomName(plainNpcName);
+        livingEntity.setCustomNameVisible(true);
+        livingEntity.setInvulnerable(true);
+        livingEntity.setPersistent(false);
 
-        npc = newNpc;
+        AINpc npc = new AINpc(this, livingEntity);
+        npcs.put(npc.getId(), npc);
+        activeNpc = npc;
         plugin.getLogger().info("NPC spawned: " + plainNpcName);
         return true;
     }
 
     public void despawn() {
-        NPC entity = npc;
-        if (entity != null) {
-            cancelMovementMonitor();
-            npc = null;
-            if (entity.isSpawned()) {
-                entity.destroy();
-            }
-            plugin.getLogger().info("NPC despawned");
+        cancelMovementMonitor();
+        if (activeNpc != null) {
+            AINpc current = activeNpc;
+            activeNpc = null;
+            current.despawn();
         }
+        npcs.clear();
+        plugin.getLogger().info("NPC despawned");
     }
 
     public CompletableFuture<MoveResult> moveTo(Location destination, double speed) {
@@ -122,32 +102,66 @@ public final class NpcManager {
         if (!Double.isFinite(speed) || speed < MIN_SPEED || speed > MAX_SPEED) {
             return CompletableFuture.completedFuture(MoveResult.INVALID_SPEED);
         }
-        return callOnEntity(entity -> startMovement(entity, target, speed),
-                MoveResult.NOT_SPAWNED);
+        AINpc npc = activeNpc;
+        if (npc == null || !npc.isSpawned()) {
+            return CompletableFuture.completedFuture(MoveResult.NOT_SPAWNED);
+        }
+
+        if (target.getWorld() == null || !target.getWorld().equals(npc.getLocation().getWorld())) {
+            return CompletableFuture.completedFuture(MoveResult.DIFFERENT_WORLD);
+        }
+        if (npc.getLocation().distanceSquared(target) > maxMoveDistance * maxMoveDistance) {
+            return CompletableFuture.completedFuture(MoveResult.TOO_FAR);
+        }
+        if (npc.getLocation().distanceSquared(target) <= arrivalDistance * arrivalDistance) {
+            return CompletableFuture.completedFuture(MoveResult.ALREADY_THERE);
+        }
+
+        movementTarget = target;
+        movementTask = npc.getEntity().getScheduler().runAtFixedRate(plugin, task -> {
+            if (activeNpc != npc || !npc.isSpawned()) {
+                clearMovementTask(task);
+                return;
+            }
+            Location current = npc.getLocation();
+            if (current.getWorld() == null || !current.getWorld().equals(target.getWorld())) {
+                clearMovementTask(task);
+                return;
+            }
+            if (current.distanceSquared(target) <= arrivalDistance * arrivalDistance) {
+                clearMovementTask(task);
+                return;
+            }
+            Vector direction = target.toVector().subtract(current.toVector()).normalize();
+            double step = Math.max(0.25, speed * 0.5);
+            Location next = current.clone().add(direction.multiply(step));
+            npc.getEntity().teleport(next);
+        }, () -> clearMovementTask(null), 1L, 1L);
+        return CompletableFuture.completedFuture(MoveResult.STARTED);
     }
 
     public CompletableFuture<Boolean> stopMovement() {
-        return callOnEntity(entity -> {
-            finishMovement(entity, null);
-            return true;
-        }, false);
+        cancelMovementMonitor();
+        return CompletableFuture.completedFuture(true);
     }
 
     public CompletableFuture<NpcState> getState() {
-        return callOnEntity(entity -> {
-            Location location = entity.getEntity().getLocation();
-            Location target = movementTarget;
-            return new NpcState(
-                    entity.getEntity().getWorld().getName(),
-                    location.getX(),
-                    location.getY(),
-                    location.getZ(),
-                    target != null,
-                    target == null ? null : target.getWorld().getName(),
-                    target == null ? null : target.getX(),
-                    target == null ? null : target.getY(),
-                    target == null ? null : target.getZ());
-        }, null);
+        AINpc npc = activeNpc;
+        if (npc == null || !npc.isSpawned()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        Location location = npc.getLocation();
+        Location target = movementTarget;
+        return CompletableFuture.completedFuture(new NpcState(
+                location.getWorld() == null ? null : location.getWorld().getName(),
+                location.getX(),
+                location.getY(),
+                location.getZ(),
+                target != null,
+                target == null ? null : target.getWorld() == null ? null : target.getWorld().getName(),
+                target == null ? null : target.getX(),
+                target == null ? null : target.getY(),
+                target == null ? null : target.getZ()));
     }
 
     public void say(String message) {
@@ -160,50 +174,44 @@ public final class NpcManager {
     }
 
     public void equip(ItemStack handItem) {
-        NPC entity = npc;
-        if (entity != null && entity.isSpawned()) {
-            Equipment equip = entity.getOrAddTrait(Equipment.class);
-            equip.set(Equipment.EquipmentSlot.HAND, handItem);
+        AINpc npc = activeNpc;
+        if (npc != null && npc.isSpawned()) {
+            npc.setEquipment(handItem);
         }
     }
 
     public void setArmor(ItemStack helmet, ItemStack chest, ItemStack legs, ItemStack boots) {
-        NPC entity = npc;
-        if (entity != null && entity.isSpawned()) {
-            Equipment equip = entity.getOrAddTrait(Equipment.class);
-            if (helmet != null) equip.set(Equipment.EquipmentSlot.HELMET, helmet);
-            if (chest != null) equip.set(Equipment.EquipmentSlot.CHESTPLATE, chest);
-            if (legs != null) equip.set(Equipment.EquipmentSlot.LEGGINGS, legs);
-            if (boots != null) equip.set(Equipment.EquipmentSlot.BOOTS, boots);
+        AINpc npc = activeNpc;
+        if (npc != null && npc.isSpawned()) {
+            npc.setArmor(helmet, chest, legs, boots);
         }
     }
 
     public void lookAt(Location location) {
-        NPC entity = npc;
-        if (entity != null && entity.isSpawned()) {
-            entity.faceLocation(location);
+        AINpc npc = activeNpc;
+        if (npc != null && npc.isSpawned()) {
+            npc.lookAt(location);
         }
     }
 
     public void teleport(Location location) {
-        NPC entity = npc;
-        if (entity != null && entity.isSpawned()) {
-            entity.teleport(location, true);
+        AINpc npc = activeNpc;
+        if (npc != null && npc.isSpawned()) {
+            npc.getEntity().teleport(location);
         }
     }
 
     public void setSkin(String skinName) {
         this.npcSkin = skinName;
-        NPC entity = npc;
-        if (entity != null && entity.isSpawned()) {
-            Skin skinTrait = entity.getOrAddTrait(Skin.class);
-            skinTrait.setSkinName(skinName);
+        AINpc npc = activeNpc;
+        if (npc != null && npc.isSpawned()) {
+            npc.setSkin(skinName);
         }
     }
 
     public boolean isSpawned() {
-        NPC entity = npc;
-        return entity != null && entity.isSpawned();
+        AINpc npc = activeNpc;
+        return npc != null && npc.isSpawned();
     }
 
     public boolean isMoving() {
@@ -222,130 +230,89 @@ public final class NpcManager {
         return plainNpcName;
     }
 
-    public NPC getEntity() {
+    public LivingEntity getEntity() {
+        AINpc npc = activeNpc;
+        return npc != null && npc.isSpawned() ? npc.getEntity() : null;
+    }
+
+    public AINpc createNpc(String name, Location location, EntityType type) {
+        World world = location.getWorld();
+        if (world == null) {
+            return null;
+        }
+        EntityType entityType = type == EntityType.PLAYER ? EntityType.VILLAGER : type;
+        Entity spawned = world.spawnEntity(location, entityType);
+        if (!(spawned instanceof LivingEntity livingEntity)) {
+            return null;
+        }
+        livingEntity.setCustomName(name);
+        livingEntity.setCustomNameVisible(true);
+        livingEntity.setInvulnerable(true);
+        livingEntity.setPersistent(false);
+        AINpc npc = new AINpc(this, livingEntity);
+        npcs.put(npc.getId(), npc);
+        activeNpc = npc;
         return npc;
     }
 
-    private MoveResult startMovement(NPC entity, Location target, double speed) {
-        if (target.getWorld() == null || !entity.getEntity().getWorld().equals(target.getWorld())) {
-            return MoveResult.DIFFERENT_WORLD;
+    public AINpc getNpcByName(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
         }
-        Location currentLocation = entity.getEntity().getLocation();
-        double distanceSquared = currentLocation.distanceSquared(target);
-        if (distanceSquared > maxMoveDistance * maxMoveDistance) {
-            return MoveResult.TOO_FAR;
-        }
-        if (distanceSquared <= arrivalDistance * arrivalDistance) {
-            finishMovement(entity, null);
-            return MoveResult.ALREADY_THERE;
-        }
-
-        cancelMovementMonitor();
-        entity.getNavigator().cancelNavigation();
-        boolean canPathNow = canStartGroundPath(entity);
-        if (canPathNow && !startNextPathSegment(entity, target, speed)) {
-            return MoveResult.NO_PATH;
-        }
-
-        movementTarget = target;
-        lastProgressLocation = currentLocation;
-        stalledRepaths = 0;
-        airborneWaitChecks = 0;
-        movementTask = entity.getEntity().getScheduler().runAtFixedRate(plugin,
-                task -> monitorMovement(entity, target, speed, task),
-                () -> clearRetiredEntity(entity), 1L, 5L);
-        return MoveResult.STARTED;
-    }
-
-    private void monitorMovement(NPC entity, Location target, double speed,
-                                 ScheduledTask task) {
-        if (npc != entity || movementTask != task || !entity.isSpawned()) {
-            clearMovementTask(task);
-            return;
-        }
-
-        Location currentLocation = entity.getEntity().getLocation();
-        boolean arrived = entity.getEntity().getWorld().equals(target.getWorld())
-                && currentLocation.distanceSquared(target)
-                <= arrivalDistance * arrivalDistance;
-        if (arrived) {
-            finishMovement(entity, task);
-            return;
-        }
-
-        Location previousLocation = lastProgressLocation;
-        if (previousLocation == null
-                || previousLocation.getWorld() != currentLocation.getWorld()
-                || previousLocation.distanceSquared(currentLocation) >= PROGRESS_DISTANCE_SQUARED) {
-            lastProgressLocation = currentLocation;
-            stalledRepaths = 0;
-        }
-
-        if (entity.getNavigator().isNavigating()) {
-            return;
-        }
-
-        if (!canStartGroundPath(entity)) {
-            airborneWaitChecks++;
-            if (airborneWaitChecks >= MAX_AIRBORNE_WAIT_CHECKS) {
-                finishMovement(entity, task);
+        for (AINpc npc : npcs.values()) {
+            if (name.equalsIgnoreCase(npc.getName())) {
+                return npc;
             }
-            return;
         }
-
-        airborneWaitChecks = 0;
-        stalledRepaths++;
-        if (stalledRepaths >= MAX_STALLED_REPATHS) {
-            finishMovement(entity, task);
-            return;
-        }
-        startNextPathSegment(entity, target, speed);
+        return null;
     }
 
-    private boolean startNextPathSegment(NPC entity, Location target, double speed) {
-        Location current = entity.getEntity().getLocation();
-        double distance = current.distance(target);
-        if (distance <= PATH_SEGMENT_DISTANCE) {
-            return entity.getNavigator().setTarget(target, true, (float) speed);
-        }
-
-        double ratio = PATH_SEGMENT_DISTANCE / distance;
-        Location waypoint = current.clone().add(
-                (target.getX() - current.getX()) * ratio,
-                (target.getY() - current.getY()) * ratio,
-                (target.getZ() - current.getZ()) * ratio);
-        if (entity.getNavigator().setTarget(waypoint, true, (float) speed)) {
-            return true;
-        }
-        return entity.getNavigator().setTarget(target, true, (float) speed);
+    public Collection<AINpc> getAllNpcs() {
+        return new ArrayList<>(npcs.values());
     }
 
-    private static boolean canStartGroundPath(NPC entity) {
-        return entity.getEntity().isOnGround()
-                || entity.getEntity().isInWater()
-                || entity.getEntity().isInsideVehicle();
+    public void removeNpc(UUID id) {
+        npcs.remove(id);
+        if (activeNpc != null && activeNpc.getId().equals(id)) {
+            activeNpc = null;
+        }
     }
 
-    private void finishMovement(NPC entity, ScheduledTask currentTask) {
-        if (currentTask != null && movementTask != currentTask) {
-            currentTask.cancel();
-            return;
+    public CompletableFuture<Boolean> moveEntity(AINpc npc, Location target, double speed) {
+        if (npc == null || !npc.isSpawned()) {
+            return CompletableFuture.completedFuture(false);
         }
-
-        entity.getNavigator().cancelNavigation();
-        movementTarget = null;
-        lastProgressLocation = null;
-        stalledRepaths = 0;
-        airborneWaitChecks = 0;
-
-        ScheduledTask task = movementTask;
-        if (currentTask == null || task == currentTask) {
-            movementTask = null;
+        if (target.getWorld() == null || !target.getWorld().equals(npc.getLocation().getWorld())) {
+            return CompletableFuture.completedFuture(false);
         }
-        if (currentTask != null) {
-            currentTask.cancel();
-        } else if (task != null) {
-            task.cancel();
+        if (npc.getLocation().distanceSquared(target) > maxMoveDistance * maxMoveDistance) {
+            return CompletableFuture.completedFuture(false);
+        }
+        if (npc.getLocation().distanceSquared(target) <= ARRIVAL_DISTANCE_SQUARED) {
+            return CompletableFuture.completedFuture(true);
+        }
+        movementTarget = target;
+        movementTask = npc.getEntity().getScheduler().runAtFixedRate(plugin, task -> {
+            if (activeNpc != npc || !npc.isSpawned()) {
+                clearMovementTask(task);
+                return;
+            }
+            Location current = npc.getLocation();
+            if (current.distanceSquared(target) <= ARRIVAL_DISTANCE_SQUARED) {
+                clearMovementTask(task);
+                return;
+            }
+            Vector direction = target.toVector().subtract(current.toVector()).normalize();
+            double step = Math.max(0.25, speed * 0.5);
+            npc.getEntity().teleport(current.clone().add(direction.multiply(step)));
+        }, () -> clearMovementTask(null), 1L, 1L);
+        return CompletableFuture.completedFuture(true);
+    }
+
+    public void keepVisible() {
+        LivingEntity entity = getEntity();
+        if (entity != null) {
+            entity.removePotionEffect(PotionEffectType.INVISIBILITY);
         }
     }
 
@@ -353,65 +320,19 @@ public final class NpcManager {
         ScheduledTask task = movementTask;
         movementTask = null;
         movementTarget = null;
-        lastProgressLocation = null;
-        stalledRepaths = 0;
-        airborneWaitChecks = 0;
         if (task != null) {
             task.cancel();
         }
     }
 
     private void clearMovementTask(ScheduledTask task) {
-        if (movementTask == task) {
+        if (movementTask == task || task == null) {
             movementTask = null;
             movementTarget = null;
-            lastProgressLocation = null;
-            stalledRepaths = 0;
-            airborneWaitChecks = 0;
         }
-        task.cancel();
-    }
-
-    private void clearRetiredEntity(NPC entity) {
-        if (npc == entity) {
-            npc = null;
-            cancelMovementMonitor();
+        if (task != null) {
+            task.cancel();
         }
-    }
-
-    private <T> CompletableFuture<T> callOnEntity(Function<NPC, T> operation,
-                                                   T unavailableValue) {
-        NPC entity = npc;
-        if (entity == null || !plugin.isEnabled()) {
-            return CompletableFuture.completedFuture(unavailableValue);
-        }
-
-        CompletableFuture<T> result = new CompletableFuture<>();
-        Runnable action = () -> {
-            if (npc != entity || !entity.isSpawned()) {
-                result.complete(unavailableValue);
-                return;
-            }
-            try {
-                result.complete(operation.apply(entity));
-            } catch (RuntimeException exception) {
-                result.completeExceptionally(exception);
-            }
-        };
-
-        if (Bukkit.isOwnedByCurrentRegion(entity.getEntity())) {
-            action.run();
-        } else {
-            boolean scheduled = entity.getEntity().getScheduler().execute(plugin, action,
-                    () -> {
-                        clearRetiredEntity(entity);
-                        result.complete(unavailableValue);
-                    }, 1L);
-            if (!scheduled) {
-                result.complete(unavailableValue);
-            }
-        }
-        return result;
     }
 
     private static boolean isValidLocation(Location location) {

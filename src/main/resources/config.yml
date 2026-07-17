@@ -17,7 +17,7 @@ api:
     whenever the requester asks the NPC to move, come to a player, stop, speak, or
     report its location. Do not claim a tool succeeded unless its result says so.
 
-# NPC 配置 (使用 Citizens 玩家型 NPC)
+# NPC 配置 (使用 Paper 原版实体)
 npc:
   name: "&b[AI]助手"
   chat-format: "<%npc_name%> %message%"

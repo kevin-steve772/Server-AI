@@ -1,39 +1,32 @@
 package com.serverai.npc;
 
-import net.citizensnpcs.api.ai.Navigator;
-import net.citizensnpcs.api.npc.NPC;
-import net.citizensnpcs.api.trait.Equipment;
-import net.citizensnpcs.npc.pathfinder.PathType;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.entity.EntityType;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 public class AINpc {
 
-    private final NPCManager manager;
-    private final NPC npc;
-    private final net.citizensnpcs.api.ai.Navigator navigator;
+    private final NpcManager manager;
+    private final LivingEntity entity;
     private final UUID id;
     private String currentAction = "idle";
 
-    public AINpc(NPCManager manager, NPC npc) {
+    public AINpc(NpcManager manager, LivingEntity entity) {
         this.manager = manager;
-        this.npc = npc;
-        this.navigator = npc.getNavigator();
-        this.id = npc.getUniqueId();
-        navigator.setLocalPathfinder(PathType.PLAYER_REALISTIC);
+        this.entity = entity;
+        this.id = entity.getUniqueId();
+        entity.setCustomNameVisible(true);
     }
 
-    public @NotNull NPC getNpc() {
-        return npc;
+    public @NotNull LivingEntity getEntity() {
+        return entity;
     }
 
     public @NotNull UUID getId() {
@@ -41,36 +34,34 @@ public class AINpc {
     }
 
     public @NotNull String getName() {
-        return npc.getName();
+        String customName = entity.getCustomName();
+        return customName == null || customName.isBlank()
+                ? entity.getType().name()
+                : customName;
     }
 
     public @NotNull Location getLocation() {
-        return npc.getEntity().getLocation();
+        return entity.getLocation();
     }
 
     public boolean isSpawned() {
-        return npc.isSpawned();
+        return entity.isValid() && !entity.isDead();
     }
 
     public void chat(@NotNull String message) {
-        npc.getEntity().sendMessage("§e[AI] §r" + message);
-        Bukkit.broadcastMessage("§e[" + npc.getName() + "] §r" + message);
+        entity.getWorld().sendMessage("§e[" + getName() + "] §r" + message);
+        Bukkit.broadcastMessage("§e[" + getName() + "] §r" + message);
         currentAction = "chat";
     }
 
     public void chatTo(@NotNull Player player, @NotNull String message) {
-        player.sendMessage("§e[" + npc.getName() + "] §r" + message);
+        player.sendMessage("§e[" + getName() + "] §r" + message);
         currentAction = "chat";
     }
 
     public @NotNull CompletableFuture<Boolean> moveTo(@NotNull Location target, double speed) {
         currentAction = "move";
-        Location from = getLocation();
-
-        return CompletableFuture.supplyAsync(() -> {
-            navigator.setTarget(target, true, speed > 0 ? (float) speed : 1.0f);
-            return waitForArrival(target, 60_000);
-        });
+        return manager.moveEntity(this, target, speed);
     }
 
     public @NotNull CompletableFuture<Boolean> moveTo(@NotNull Location target) {
@@ -78,39 +69,48 @@ public class AINpc {
     }
 
     public void stopMoving() {
-        navigator.cancelNavigation();
         currentAction = "idle";
+        manager.stopMovement();
     }
 
     public void lookAt(@NotNull Location target) {
-        npc.faceLocation(target);
+        Location current = entity.getLocation();
+        Location updated = current.clone();
+        double dx = target.getX() - current.getX();
+        double dz = target.getZ() - current.getZ();
+        if (dx == 0.0 && dz == 0.0) {
+            updated.setPitch(0.0f);
+        } else {
+            float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+            updated.setYaw(yaw);
+            updated.setPitch(0.0f);
+        }
+        entity.teleport(updated);
     }
 
     public void lookAt(@NotNull Player player) {
-        npc.faceEntity(player);
+        lookAt(player.getLocation());
     }
 
     public void setEquipment(@NotNull ItemStack hand) {
-        Equipment equip = npc.getTrait(Equipment.class);
-        if (equip != null) {
-            equip.set(Equipment.EquipmentSlot.HAND, hand);
+        EntityEquipment equipment = entity.getEquipment();
+        if (equipment != null) {
+            equipment.setItemInMainHand(hand);
         }
     }
 
     public void setArmor(@NotNull ItemStack helmet, @NotNull ItemStack chest, @NotNull ItemStack legs, @NotNull ItemStack boots) {
-        Equipment equip = npc.getTrait(Equipment.class);
-        if (equip != null) {
-            equip.set(Equipment.EquipmentSlot.HELMET, helmet);
-            equip.set(Equipment.EquipmentSlot.CHESTPLATE, chest);
-            equip.set(Equipment.EquipmentSlot.LEGGINGS, legs);
-            equip.set(Equipment.EquipmentSlot.BOOTS, boots);
+        EntityEquipment equipment = entity.getEquipment();
+        if (equipment != null) {
+            if (helmet != null) equipment.setHelmet(helmet);
+            if (chest != null) equipment.setChestplate(chest);
+            if (legs != null) equipment.setLeggings(legs);
+            if (boots != null) equipment.setBoots(boots);
         }
     }
 
     public void setSkin(@NotNull String skinName) {
-        npc.setEntityType(EntityType.PLAYER);
-        // Skin setting requires skin trait or packet manipulation
-        // Simplified: just set name for now
+        entity.setCustomName(getName() + " (" + skinName + ")");
     }
 
     public @NotNull String getCurrentAction() {
@@ -122,40 +122,18 @@ public class AINpc {
     }
 
     public void despawn() {
-        npc.despawn();
+        entity.remove();
     }
 
     public void respawn() {
-        npc.spawn(getLocation());
+        if (!entity.isValid()) {
+            entity.teleport(getLocation());
+        }
     }
 
     public void destroy() {
         stopMoving();
-        npc.destroy();
+        entity.remove();
         manager.removeNpc(id);
-    }
-
-    private boolean waitForArrival(@NotNull Location target, long timeoutMs) {
-        long start = System.currentTimeMillis();
-        Location npcLoc;
-
-        while (System.currentTimeMillis() - start < timeoutMs) {
-            if (!npc.isSpawned()) return false;
-
-            npcLoc = getLocation();
-            if (npcLoc.distance(target) < 2.0) {
-                currentAction = "idle";
-                return true;
-            }
-
-            try {
-                Thread.sleep(500);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
-        }
-        currentAction = "idle";
-        return false;
     }
 }

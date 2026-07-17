@@ -214,7 +214,7 @@ public final class NpcCommand implements TabExecutor {
             return;
         }
         String skinName = args[1];
-        plugin.getNpcManager().getEntity().getOrAddTrait(net.citizensnpcs.api.trait.trait.Skin.class).setSkinName(skinName);
+        plugin.getNpcManager().setSkin(skinName);
         sender.sendMessage(Component.text("NPC皮肤已设置为: " + skinName, NamedTextColor.GREEN));
     }
 
@@ -236,7 +236,7 @@ public final class NpcCommand implements TabExecutor {
             double y = finiteDouble(args[3]);
             double z = finiteDouble(args[4]);
             Location loc = new Location(world, x, y, z);
-            plugin.getNpcManager().getEntity().teleport(loc);
+            plugin.getNpcManager().teleport(loc);
             sender.sendMessage(Component.text("NPC已传送至 " + world.getName() + " " + x + " " + y + " " + z, NamedTextColor.GREEN));
         } catch (NumberFormatException e) {
             sender.sendMessage(Component.text("坐标必须是有效数字", NamedTextColor.RED));
@@ -266,7 +266,7 @@ public final class NpcCommand implements TabExecutor {
                 double x = finiteDouble(args[3]);
                 double y = finiteDouble(args[4]);
                 double z = finiteDouble(args[5]);
-                plugin.getNpcManager().getEntity().faceLocation(new Location(world, x, y, z));
+                plugin.getNpcManager().lookAt(new Location(world, x, y, z));
                 sender.sendMessage(Component.text("NPC正在看向坐标: " + x + " " + y + " " + z, NamedTextColor.GREEN));
             } catch (NumberFormatException e) {
                 sender.sendMessage(Component.text("坐标必须是有效数字", NamedTextColor.RED));
@@ -278,7 +278,7 @@ public final class NpcCommand implements TabExecutor {
                 sender.sendMessage(Component.text("玩家不在线: " + playerName, NamedTextColor.RED));
                 return;
             }
-            plugin.getNpcManager().getEntity().faceEntity(player);
+            plugin.getNpcManager().lookAt(player.getLocation());
             sender.sendMessage(Component.text("NPC正在看向玩家: " + playerName, NamedTextColor.GREEN));
         } else {
             sender.sendMessage(Component.text("目标类型必须是 coordinates 或 player", NamedTextColor.RED));
