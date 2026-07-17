@@ -49,8 +49,8 @@ public class AINpc {
     }
 
     public void chat(@NotNull String message) {
-        entity.getWorld().sendMessage("§e[" + getName() + "] §r" + message);
-        Bukkit.broadcastMessage("§e[" + getName() + "] §r" + message);
+        String formatted = "§e[" + getName() + "] §r" + message;
+        Bukkit.broadcastMessage(formatted);
         currentAction = "chat";
     }
 

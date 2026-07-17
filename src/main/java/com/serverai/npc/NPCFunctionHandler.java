@@ -2,17 +2,17 @@ package com.serverai.npc;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.serverai.AiClient;
 import com.serverai.Main;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -23,18 +23,18 @@ import java.util.stream.Collectors;
 public class NPCFunctionHandler {
 
     private final Main plugin;
-    private final NPCManager npcManager;
+    private final NpcManager npcManager;
     private final Map<String, Function<JsonNode, CompletableFuture<String>>> functions = new ConcurrentHashMap<>();
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public NPCFunctionHandler(Main plugin, NPCManager npcManager) {
+    public NPCFunctionHandler(Main plugin, NpcManager npcManager) {
         this.plugin = plugin;
         this.npcManager = npcManager;
         registerFunctions();
     }
 
     public @NotNull List<ObjectNode> getToolDefinitions() {
-        return new ArrayList<>(getFunctionDefinitions().values());
+        return new ArrayList<>(buildToolDefinitions().values());
     }
 
     public @NotNull CompletableFuture<String> executeFunction(@NotNull JsonNode call) {
@@ -66,10 +66,10 @@ public class NPCFunctionHandler {
     }
 
     public @NotNull Map<String, ObjectNode> getFunctionDefinitions() {
-        return getToolDefinitions();
+        return buildToolDefinitions();
     }
 
-    public @NotNull Map<String, ObjectNode> getToolDefinitions() {
+    private @NotNull Map<String, ObjectNode> buildToolDefinitions() {
         Map<String, ObjectNode> defs = new LinkedHashMap<>();
 
         defs.put("spawn_npc", createDef("spawn_npc", "在指定位置生成一个 AI NPC", Map.of(
@@ -190,15 +190,12 @@ public class NPCFunctionHandler {
 
     private ObjectNode createParam(String type, String desc, boolean required, Object defaultVal) {
         ObjectNode p = createParam(type, desc, required);
-        if (defaultVal instanceof Number) p.put("default", (Number) defaultVal);
-        else if (defaultVal instanceof String) p.put("default", (String) defaultVal);
+        if (defaultVal instanceof Number number) {
+            p.put("default", number.doubleValue());
+        } else if (defaultVal instanceof String string) {
+            p.put("default", string);
+        }
         return p;
-    }
-
-    public @NotNull CompletableFuture<String> executeFunction(@NotNull JsonNode call) {
-        String name = call.get("name").asText();
-        JsonNode args = call.get("arguments");
-        return execute(name, args);
     }
 
     public @NotNull CompletableFuture<String> execute(@NotNull String name, @NotNull JsonNode args) {
@@ -378,7 +375,7 @@ public class NPCFunctionHandler {
         if (npc == null) return CompletableFuture.completedFuture("NPC not found: " + name);
         if (world == null) return CompletableFuture.completedFuture("World not found: " + worldName);
 
-        npc.getNpc().teleport(new Location(world, x, y, z));
+        npc.getEntity().teleport(new Location(world, x, y, z));
         return CompletableFuture.completedFuture("NPC " + name + " teleported to " + x + "," + y + "," + z);
     }
 
