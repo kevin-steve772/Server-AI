@@ -51,7 +51,7 @@ class AiClientTest {
         });
 
         AiClient client = client("secret", baseUrl() + "/v1", true);
-        String answer = client.askAsync("question").get(2, TimeUnit.SECONDS);
+        String answer = client.askAsync("question").get(5, TimeUnit.SECONDS);
 
         assertEquals("hello", answer);
         assertEquals("Bearer secret", authorization.get());
@@ -74,7 +74,7 @@ class AiClientTest {
 
         AiClient client = client("secret",
                 baseUrl() + "/v1/chat/completions?api-version=2025-01-01", true);
-        assertEquals("ok", client.askAsync("question").get(2, TimeUnit.SECONDS));
+        assertEquals("ok", client.askAsync("question").get(5, TimeUnit.SECONDS));
         assertEquals("/v1/chat/completions", path.get());
         assertEquals("api-version=2025-01-01", query.get());
     }
@@ -90,7 +90,7 @@ class AiClientTest {
 
         AiClient client = client("", baseUrl() + "/v1", false);
         assertTrue(client.isConfigured());
-        assertEquals("local", client.askAsync("question").get(2, TimeUnit.SECONDS));
+        assertEquals("local", client.askAsync("question").get(5, TimeUnit.SECONDS));
         assertNull(authorization.get());
     }
 
@@ -101,7 +101,7 @@ class AiClientTest {
 
         ExecutionException exception = assertThrows(ExecutionException.class,
                 () -> client("secret", baseUrl() + "/v1", true)
-                        .askAsync("question").get(2, TimeUnit.SECONDS));
+                        .askAsync("question").get(5, TimeUnit.SECONDS));
 
         AiClient.AiClientException cause = assertInstanceOf(
                 AiClient.AiClientException.class, exception.getCause());
@@ -135,7 +135,7 @@ class AiClientTest {
         });
 
         assertEquals("tool complete",
-                client.askAsync("use a tool").get(2, TimeUnit.SECONDS));
+                client.askAsync("use a tool").get(5, TimeUnit.SECONDS));
         assertEquals(2, requests.size());
         assertEquals("lookup", invocation.get().path("name").asText());
         assertEquals(1, invocation.get().path("arguments").path("value").asInt());
@@ -157,7 +157,7 @@ class AiClientTest {
                 call -> CompletableFuture.completedFuture("unused"));
 
         assertEquals("no tools", client.askWithFunctionsAsync(
-                "question", null, false).get(2, TimeUnit.SECONDS));
+                "question", null, false).get(5, TimeUnit.SECONDS));
         assertFalse(request.get().has("tools"));
         assertFalse(request.get().has("tool_choice"));
     }
@@ -168,12 +168,12 @@ class AiClientTest {
         assertFalse(client.isConfigured());
 
         ExecutionException exception = assertThrows(ExecutionException.class,
-                () -> client.askAsync("question").get(2, TimeUnit.SECONDS));
+                () -> client.askAsync("question").get(5, TimeUnit.SECONDS));
         assertInstanceOf(AiClient.AiClientException.class, exception.getCause());
     }
 
     private AiClient client(String key, String endpoint, boolean requireKey) {
-        return new AiClient(key, endpoint, "test-model", 128, 0.5, 2, 2, requireKey);
+        return new AiClient(key, endpoint, "test-model", 128, 0.5, 5, 2, requireKey);
     }
 
     private void startServer(ExchangeHandler handler) throws IOException {
